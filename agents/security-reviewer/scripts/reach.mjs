@@ -177,18 +177,17 @@ function lineFinder(text) {
   };
 }
 
-// The scheme, then an authority that stops at anything computed (`$`, `{`) or quoted.
-const URL_IN_CODE = /\b(https?|wss?):\/\/([\p{L}\p{N}_.~%!&*+=:@[\]-]*)/giu;
-// Underscores are allowed: a container or service name such as redis_cache is a host to fetch.
-const HOSTNAME = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)*|\[[0-9a-f:.]+\])$/;
+// The scheme, then an authority that stops at anything computed (`$`, `{`) or quoted. No word
+// boundary before the scheme: in a string such as "see:\nhttps://x" the escape touches it.
+const URL_IN_CODE = /(https?|wss?):\/\/([\p{L}\p{N}_.~%!&*+=:@[\]-]*)/giu;
 
-/** The hostname of a URL written in code, or null when it is computed or not a host. */
+/** The hostname of a URL written in code, as a URL parser gives it, or null when it is
+ *  computed or the parser rejects it. */
 function hostOf(scheme, authority) {
   if (!authority) return null;
   let host;
   try { host = new URL(`${scheme.toLowerCase()}://${authority}/`).hostname; } catch { return null; }
-  host = host.replace(/\.+$/, "");
-  return HOSTNAME.test(host) ? host : null;
+  return host.replace(/\.+$/, "") || null;
 }
 
 function urlsIn(code, lineAt) {
@@ -200,11 +199,12 @@ function urlsIn(code, lineAt) {
   return urls;
 }
 
+// Space may sit around each `.`, as in `process\n  .env.X`; a blanked comment leaves space too.
 const JS_ENV_READS = [
-  /\bprocess\.env(?:\?\.|\.)([\p{L}_$][\p{L}\p{N}_$]*)/gu,
-  /\bprocess\.env(?:\?\.)?\[\s*(["'`])([^"'`\\$]+)\1\s*\]/g,
+  /\bprocess\s*(?:\?\.|\.)\s*env\s*(?:\?\.|\.)\s*([\p{L}_$][\p{L}\p{N}_$]*)/gu,
+  /\bprocess\s*(?:\?\.|\.)\s*env\s*(?:\?\.)?\s*\[\s*(["'`])([^"'`\\$]+)\1\s*\]/g,
 ];
-const JS_ENV_DESTRUCTURING = /\{([^{}]*)\}\s*=\s*process\.env\b/g;
+const JS_ENV_DESTRUCTURING = /\{([^{}]*)\}\s*=\s*process\s*(?:\?\.|\.)\s*env\b/g;
 const PY_ENV_READS = [
   /\bos\.environ\s*\[\s*(["'])([^"'\\]+)\1\s*\]/g,
   /\bos\.environ\.get\(\s*(["'])([^"'\\]+)\1/g,
@@ -246,8 +246,9 @@ function envIn(code, language, lineAt) {
 }
 
 const JS_SPAWNS = [/\b(?:from|import|require)\s*\(?\s*(["'`])(?:node:)?child_process\1/g];
+// An import starts a line or follows `:` (`if x: import subprocess`) or `;` (`a = 1; import …`).
 const PY_SPAWNS = [
-  /^[ \t]*(?:import[ \t]+[^\n#]*\bsubprocess\b|from[ \t]+subprocess[ \t]+import\b)/gm,
+  /(?:^|[;:])[ \t]*(?:import[ \t]+[^\n#;]*\bsubprocess\b|from[ \t]+subprocess[ \t]+import\b)/gm,
   /\bos\.system\s*\(/g,
 ];
 
@@ -256,7 +257,7 @@ function spawnsIn(code, language, lineAt) {
   const spawns = [];
   for (const pattern of patterns) {
     for (const m of code.matchAll(pattern)) {
-      spawns.push({ what: m[0].trim(), line: lineAt(m.index), at: m.index });
+      spawns.push({ what: m[0].replace(/^[;:]/, "").trim(), line: lineAt(m.index), at: m.index });
     }
   }
   return spawns;
