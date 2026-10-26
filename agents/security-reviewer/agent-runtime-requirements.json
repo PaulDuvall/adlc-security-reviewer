@@ -1,0 +1,17 @@
+{
+  "format": "agent-runtime-requirements-v1",
+  "runtimes": [
+    { "name": "node", "version": ">=22" }
+  ],
+  "binaries": [],
+  "dependencies": [],
+  "systems": [],
+  "ceilings": [],
+  "directories": [],
+  "job_seconds": 60,
+  "price": {
+    "sku": "default",
+    "covers": { "offerings": ["review-package"] },
+    "price": { "model": "free" }
+  }
+}

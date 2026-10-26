@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-writes.mjs\"" }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Bash(node tools/lock.mjs --write *)",
+      "Bash(node tools/lock.mjs --write)",
+      "Bash(git tag *)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(npm install *)",
+      "Bash(npm i *)"
+    ]
+  }
+}

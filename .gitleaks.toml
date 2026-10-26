@@ -1,0 +1,10 @@
+# Gitleaks configuration for the "No credential in the history" step in verify.yml.
+# Keeps every default rule. LOCK.json holds the SHA-256 digest of each locked file, and a
+# digest keyed by a path containing "secrets" trips generic-api-key. It is a hash, not a
+# credential, so LOCK.json alone is allowlisted.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "handoff lock digests"
+paths = ['''^LOCK\.json$''']

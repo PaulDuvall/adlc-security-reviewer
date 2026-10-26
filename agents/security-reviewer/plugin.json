@@ -1,0 +1,36 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "security-reviewer",
+  "version": "0.1.0",
+  "description": "Reads an Agent Package and the spending limit its owner set, before the agent is installed. Hands back a statement of what the agent may reach and why, what it may spend, what it must never do, and what was accepted knowingly, or a refusal naming everything that stopped it.",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Redacted Ventures"
+  },
+  "keywords": [
+    "role-security-reviewer",
+    "review-package",
+    "read-the-package",
+    "find-what-the-programs-reach",
+    "check-the-declaration",
+    "write-the-statement"
+  ],
+  "extensions": {
+    "net.agentdoc.package": {
+      "build": {
+        "skills": {
+          "review-package": {
+            "scripts": [
+              "scripts/review.mjs",
+              "scripts/read-package.mjs",
+              "scripts/reach.mjs",
+              "scripts/secrets.mjs",
+              "scripts/rules.mjs",
+              "scripts/statement.mjs"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

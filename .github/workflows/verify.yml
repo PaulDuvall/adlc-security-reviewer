@@ -1,0 +1,95 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+    tags: [handoff]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Which stage this commit is in
+        id: stage
+        run: |
+          if diff -rq agents/security-reviewer/scripts agents/security-reviewer/test/stand-ins >/dev/null; then
+            echo "stage=test" >> "$GITHUB_OUTPUT"; echo "Test stage: the programs are still the empty stand-ins"
+          else
+            echo "stage=code" >> "$GITHUB_OUTPUT"; echo "Code stage: the programs have been written"
+          fi
+
+      - name: Only the Code stage's paths changed since the handoff
+        run: |
+          git rev-parse -q --verify refs/tags/handoff >/dev/null || { echo "no handoff tag"; exit 1; }
+          bad=$(git diff --name-only handoff HEAD | grep -vE '^(agents/security-reviewer/scripts/|docs/rounds\.md$|README\.md$)' || true)
+          if [ -n "$bad" ]; then echo "changed outside the Code stage's paths:"; echo "$bad"; exit 1; fi
+
+      - name: The handoff lock holds
+        run: node tools/lock.mjs --verify
+
+      - name: "Test stage: no test passes against the empty stand-ins"
+        if: steps.stage.outputs.stage == 'test'
+        run: node tools/removal-check.mjs
+
+      - name: "Code stage: the suite passes"
+        if: steps.stage.outputs.stage == 'code'
+        run: node --test "agents/security-reviewer/test/*.test.mjs"
+
+      - name: "Code stage: the role's conformance cases pass"
+        if: steps.stage.outputs.stage == 'code'
+        run: node conformance/security-reviewer-check.mjs --cmd "node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs"
+
+      - name: "Code stage: the suite notices each program removed"
+        if: steps.stage.outputs.stage == 'code'
+        run: node tools/removal-check.mjs
+
+      - name: "Code stage: the reviewer passes its own package"
+        if: steps.stage.outputs.stage == 'code'
+        run: node tools/self-review.mjs
+
+      - name: No credential in the history
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tgz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --verbose .
+
+  package-maker:
+    # Informational. Builds the package source with AgentMesh's own package maker, pinned.
+    # It runs code from CommonAgent/adlc, so it reads nothing secret and holds no token.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    env:
+      ADLC_COMMIT: fa174cf88c22db8599f6447dbc40740cf046c36a
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build with the package maker at a pinned commit
+        run: |
+          git clone -q https://github.com/CommonAgent/adlc "$RUNNER_TEMP/adlc"
+          git -C "$RUNNER_TEMP/adlc" checkout -q "$ADLC_COMMIT"
+          python3 "$RUNNER_TEMP/adlc/agents/package-maker/build.py" agents/security-reviewer "$RUNNER_TEMP/pkg"

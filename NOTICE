@@ -1,0 +1,13 @@
+adlc-security-reviewer
+Copyright 2026 Redacted Ventures LLC
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It is written against the Agent Development Lifecycle and the Common Agent Standards,
+published by AgentMesh, Inc. under Apache-2.0:
+  https://github.com/CommonAgent/adlc
+  https://github.com/CommonAgent/common-agent-standards
+
+The credential patterns in agents/security-reviewer/scripts/secrets.mjs are to be taken from
+agents/publisher/scripts/inspect.mjs in CommonAgent/adlc, Copyright AgentMesh, Inc.,
+licensed under Apache-2.0.

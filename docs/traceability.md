@@ -1,0 +1,43 @@
+# Traceability
+
+Requirement to test to program. Requirements are in [spec.md](spec.md). Tests are in
+`agents/security-reviewer/test/`; programs in `agents/security-reviewer/scripts/`. Locked at the
+`handoff` tag.
+
+| Req | Tests | Program | Conformance harness | Other check |
+|---|---|---|---|---|
+| SR-01 | SR-01 writes one JSON object on one line, ends with a newline, and exits 0 | review.mjs |  |  |
+| SR-02 | SR-02 refuses a request that is not JSON<br>SR-02 refuses a request that does not carry review v1 | review.mjs |  |  |
+| SR-03 | SR-03 declines a request to bind the package's credential<br>SR-03 declines every ask other than review | review.mjs | case 4 |  |
+| SR-04 | SR-04 leaves every file in the package as it was, whatever the answer | all (runs read-only) |  | CI runs under `--permission` with read-only files |
+| SR-05 | SR-05 refuses a package directory that does not exist<br>SR-05 refuses a descriptor or runtime requirements that is not JSON<br>SR-05 reads descriptor.json and install.json when the current names are absent<br>SR-05 reads the current name where a former name is also present<br>SR-05 readPackage reads the descriptor, the runtime requirements and the shipped files<br>SR-05 readPackage prefers the current names and falls back to the former ones<br>SR-05 readPackage throws an error with code unreadable | read-package.mjs, review.mjs |  |  |
+| SR-06 | SR-06 refuses when the descriptor and the runtime requirements name different systems | rules.mjs |  |  |
+| SR-07 | SR-07 refuses a system with a missing or blank reason, naming it | rules.mjs | case 1 (fails a pass with no reason) |  |
+| SR-08 | SR-08 refuses a URL in code, naming the hostname, the file and the line<br>SR-08 does not count a URL inside a comment<br>SR-08 finds a URL in a string followed by a comment, in a template, and in Python<br>SR-08 findReach finds URLs in JavaScript code and not in comments<br>SR-08 findReach finds URLs in Python code and not in comments | reach.mjs, rules.mjs | case 2 |  |
+| SR-09 | SR-09 refuses an unbound credential-like variable, naming it, the file and the line<br>SR-09 recognizes bracket reads, destructuring and Python reads<br>SR-09 does not count a credential-like variable the runtime requirements bind<br>SR-09 findReach finds every environment read form in JavaScript<br>SR-09 findReach finds every environment read form in Python | reach.mjs, rules.mjs |  |  |
+| SR-10 | SR-10 refuses when the owner set no spending limit<br>SR-10 refuses a malformed spending limit<br>SR-10 accepts a spending limit of zero | rules.mjs | case 3 |  |
+| SR-11 | SR-11 refuses a spending system with no ceiling<br>SR-11 refuses a ceiling that does not say which side enforces it | rules.mjs |  |  |
+| SR-12 | SR-12 refuses a ceiling the owner set no number for | rules.mjs |  |  |
+| SR-13 | SR-13 refuses a shipped file that carries a private key, without repeating it<br>SR-13 refuses an AWS access key in a program, without repeating it<br>SR-13 does not read files under test folders<br>SR-13 SECRETS carries the publisher's credential patterns<br>SR-13 carriesASecret names the kind of credential, and passes ordinary text | secrets.mjs, rules.mjs |  |  |
+| SR-14 | SR-14 passes a dependency whose lockfile is shipped, matches its digest and pins every entry<br>SR-14 refuses a dependency whose lockfile is missing, differs from its digest, or leaves an entry unpinned | rules.mjs |  |  |
+| SR-15 | SR-15 lists every refusal found in one answer | rules.mjs, review.mjs |  |  |
+| SR-16 | SR-16 passes a sound package with a statement of reach, reasons, limit and refusals<br>SR-16 lists every ceiling with the owner's number and the side that enforces it | statement.mjs | case 1 |  |
+| SR-17 | SR-17 accepts knowingly an access other than read<br>SR-17 accepts knowingly a system that content leaves for<br>SR-17 accepts knowingly a ceiling only the runtime enforces<br>SR-17 accepts knowingly a program that starts other processes<br>SR-17 accepts knowingly an unbound variable that is not credential-like<br>SR-17 findReach finds process starts | reach.mjs, rules.mjs |  |  |
+| SR-18 | SR-18 names what was not checked<br>SR-18 names a program in a language it does not read | rules.mjs |  |  |
+| SR-19 | SR-19 binds every answer about a readable package to its digest<br>SR-19 changes the digest with one shipped byte, and not with a test file<br>SR-19 packageDigest follows its definition | read-package.mjs |  |  |
+| SR-20 | SR-20 gives a byte-identical answer to the same request | all |  |  |
+| SR-21 | SR-21 runs with read-only files, no processes and no network<br>SR-21 passes its own package with zero declared systems | all |  | `tools/self-review.mjs`; CI step "The reviewer passes its own package" |
+
+Unit tests with no requirement prefix pin exported functions used by several requirements:
+
+ships excludes test folders, node_modules, .git and test files  
+languageOf names JavaScript and Python programs, and nothing else  
+isCredentialName reads the parts of a name
+
+## Stage checks
+
+| Check | Tool | Done when |
+|---|---|---|
+| Suite fails against empty stand-ins | `tools/removal-check.mjs` | 0 tests pass |
+| Each program removed is noticed | `tools/removal-check.mjs` | at least 1 test fails per program |
+| Statement and tests unchanged by the Code stage | `tools/lock.mjs --verify`, CI diff against `handoff` | no locked file changed, added or removed |
