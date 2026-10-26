@@ -28,6 +28,10 @@ const JS_KEYWORDS_BEFORE_EXPRESSION = new Set([
 // A `)` closing the condition of one of these is followed by a statement, so a `/` there
 // begins a regular expression rather than a division.
 const JS_KEYWORDS_BEFORE_CONDITION = new Set(["if", "while", "for", "with"]);
+// Line terminators. A JavaScript comment ends at any of them, so code after a U+2028 runs;
+// a Python line ends at \n or a lone \r.
+const JS_LINE_END = /[\n\r\u2028\u2029]/g;
+const PY_LINE_END = /[\n\r]/g;
 
 /** JavaScript with its comments blanked. Strings, templates and regular expression literals
  *  are kept as they are, so a comment marker inside one is not taken for a comment. */
@@ -38,7 +42,7 @@ function blankJavaScriptComments(text) {
   let lastWord = null; // the word just before, when nothing but space or comments followed it
   const parens = []; // for each open `(`, whether it opens a condition (JS_KEYWORDS_BEFORE_CONDITION)
 
-  const lineComment = (i) => { const end = text.indexOf("\n", i); return end === -1 ? n : end; };
+  const lineComment = (i) => { JS_LINE_END.lastIndex = i; const m = JS_LINE_END.exec(text); return m ? m.index : n; };
   const blockComment = (i) => { const end = text.indexOf("*/", i + 2); return end === -1 ? n : end + 2; };
   const quoted = (i) => {
     const q = text[i];
@@ -134,8 +138,9 @@ function blankPythonComments(text) {
   while (i < n) {
     const c = text[i];
     if (c === "#") {
-      const end = text.indexOf("\n", i);
-      const stop = end === -1 ? n : end;
+      PY_LINE_END.lastIndex = i;
+      const end = PY_LINE_END.exec(text);
+      const stop = end ? end.index : n;
       out.push(blank(text.slice(i, stop)));
       i = stop;
       continue;
