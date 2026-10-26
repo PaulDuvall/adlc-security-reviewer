@@ -4,7 +4,7 @@ A reference implementation of the ADLC **security reviewer** role
 ([agentroles.ai/security-reviewer](https://agentroles.ai/security-reviewer.html), ROLES.md §34),
 the Security review stage at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages.html#security).
 
-Status: Code stage round 1 done ([docs/rounds.md](docs/rounds.md)). `npm run verify` exits 0.
+Status: Code stage done in two rounds ([docs/rounds.md](docs/rounds.md)). `npm run verify` exits 0.
 
 | Path | Stage | Who changes it |
 |---|---|---|

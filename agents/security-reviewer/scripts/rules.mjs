@@ -53,14 +53,15 @@ function programs(pkg) {
 const CURRENCY = /^[A-Z]{3}$/;
 const PERIODS = new Set(["task", "day"]);
 
-/** The owner's spending limit, its three members in order, or null when missing or malformed. */
+/** The owner's spending limit as the owner gave it, so the statement's limit equals it
+ *  (SR-16), or null when missing or malformed. */
 export function limitOf(owner) {
   const l = isObject(owner) ? owner.spend_limit : undefined;
   if (!isObject(l)) return null;
   if (!Number.isSafeInteger(l.most_micro) || l.most_micro < 0) return null;
   if (typeof l.currency !== "string" || !CURRENCY.test(l.currency)) return null;
   if (!PERIODS.has(l.per)) return null;
-  return { most_micro: l.most_micro, currency: l.currency, per: l.per };
+  return { ...l };
 }
 
 /** The owner's number for a ceiling: the first entry with its system and period whose

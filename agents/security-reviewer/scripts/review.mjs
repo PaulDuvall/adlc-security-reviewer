@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readPackage } from "./read-package.mjs";
 import { credentialTexts, findRefusals, spendLimitRefusals } from "./rules.mjs";
+import { SECRETS } from "./secrets.mjs";
 import { packageOf, statementOf } from "./statement.mjs";
 
 const DECLINED = "This reviewer only reviews: it grants, binds, installs and changes nothing. Ask for a review instead.";
@@ -26,22 +27,31 @@ function parse(request) {
   return { request: r };
 }
 
-/** Every string in the answer with each credential text replaced, so none is repeated. */
+const SPECIAL = /[.*+?^${}()|[\]\\]/g;
+// A private key's pattern matches only its first line, but its body is the key, so a PEM
+// block is withheld whole: from that line to its END line, or to the end of the text.
+const PEM_BLOCK = /-{5}BEGIN [A-Z0-9 ]*PRIVATE KEY-{5}[\s\S]*?(?:-{5}END [A-Z0-9 ]*PRIVATE KEY-{5}|$)/g;
+const SHAPES = SECRETS.map((s) => new RegExp(s.find.source, `${s.find.flags}g`));
+
+/** Every string in the answer with each credential text found in the package replaced, in
+ *  any case (a URL's host is lowercased), and with anything else shaped like a credential
+ *  replaced too, since a declaration's decoded text can differ from its bytes (SR-13). */
 function withheld(value, texts) {
-  if (!texts.length) return value;
-  if (typeof value === "string") return texts.reduce((s, t) => s.split(t).join("[withheld]"), value);
-  if (Array.isArray(value)) return value.map((v) => withheld(v, texts));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withheld(v, texts)]));
-  }
-  return value;
+  const found = [...new Set(texts)].sort((a, b) => b.length - a.length || (a < b ? -1 : 1))
+    .map((t) => new RegExp(t.replace(SPECIAL, "\\$&"), "gi"));
+  const scrub = (v) => {
+    if (typeof v === "string") return [PEM_BLOCK, ...found, ...SHAPES].reduce((s, re) => s.replace(re, "[withheld]"), v);
+    if (Array.isArray(v)) return v.map(scrub);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrub(x)]));
+    return v;
+  };
+  return scrub(value);
 }
 
 function reviewPackage(pkg, owner) {
   const refusals = findRefusals(pkg, owner);
   const reply = refusals.length ? refused(refusals, pkg) : { result: "passed", statement: statementOf(pkg, owner) };
-  const texts = [...new Set(credentialTexts(pkg))].sort((a, b) => b.length - a.length || (a < b ? -1 : 1));
-  return withheld(reply, texts);
+  return withheld(reply, credentialTexts(pkg));
 }
 
 /** The answer to one request, a JSON string or an already parsed object. `options.cwd` is
@@ -58,7 +68,7 @@ export function answer(request, options = {}) {
     return refused([{ rule: "unreadable", why: e.message }, ...spendLimitRefusals(r.owner)]);
   }
   try { return reviewPackage(pkg, r.owner); } catch {
-    return refused([{ rule: "unreadable", why: "the reviewer could not finish reading the package's declarations" }], pkg);
+    return withheld(refused([{ rule: "unreadable", why: "the reviewer could not finish reading the package's declarations" }], pkg), []);
   }
 }
 

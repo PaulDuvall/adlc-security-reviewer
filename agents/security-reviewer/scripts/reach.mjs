@@ -25,6 +25,9 @@ const JS_WORD = /[\p{L}\p{N}_$]+/uy;
 const JS_KEYWORDS_BEFORE_EXPRESSION = new Set([
   "return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await",
 ]);
+// A `)` closing the condition of one of these is followed by a statement, so a `/` there
+// begins a regular expression rather than a division.
+const JS_KEYWORDS_BEFORE_CONDITION = new Set(["if", "while", "for", "with"]);
 
 /** JavaScript with its comments blanked. Strings, templates and regular expression literals
  *  are kept as they are, so a comment marker inside one is not taken for a comment. */
@@ -32,6 +35,8 @@ function blankJavaScriptComments(text) {
   const out = [];
   const n = text.length;
   let expectValue = true; // whether a `/` here would begin a regular expression
+  let lastWord = null; // the word just before, when nothing but space or comments followed it
+  const parens = []; // for each open `(`, whether it opens a condition (JS_KEYWORDS_BEFORE_CONDITION)
 
   const lineComment = (i) => { const end = text.indexOf("\n", i); return end === -1 ? n : end; };
   const blockComment = (i) => { const end = text.indexOf("*/", i + 2); return end === -1 ? n : end + 2; };
@@ -68,9 +73,9 @@ function blankJavaScriptComments(text) {
       if (c === "/" && d === "*") { end = blockComment(i); out.push(blank(text.slice(i, end))); i = end; continue; }
       if (c === "#" && d === "!" && i === 0) { end = lineComment(i); out.push(blank(text.slice(i, end))); i = end; continue; }
       if (c === "'" || c === '"') end = quoted(i);
-      else if (c === "`") { i = template(i); expectValue = false; continue; }
+      else if (c === "`") { i = template(i); expectValue = false; lastWord = null; continue; }
       else if (c === "/" && expectValue) end = regex(i);
-      if (end !== undefined) { out.push(text.slice(i, end)); i = end; expectValue = false; continue; }
+      if (end !== undefined) { out.push(text.slice(i, end)); i = end; expectValue = false; lastWord = null; continue; }
 
       JS_WORD.lastIndex = i;
       const word = JS_WORD.exec(text);
@@ -78,8 +83,10 @@ function blankJavaScriptComments(text) {
         out.push(word[0]);
         i += word[0].length;
         expectValue = JS_KEYWORDS_BEFORE_EXPRESSION.has(word[0]);
+        lastWord = word[0];
         continue;
       }
+      if (c === "(") parens.push(JS_KEYWORDS_BEFORE_CONDITION.has(lastWord));
       if (c === "{") depth += 1;
       if (c === "}") {
         if (nested && depth === 0) { out.push(c); return i + 1; }
@@ -87,7 +94,13 @@ function blankJavaScriptComments(text) {
       }
       out.push(c);
       i += 1;
-      if (!/\s/.test(c)) expectValue = !(c === ")" || c === "]" || c === "}");
+      if (/\s/.test(c)) continue;
+      lastWord = null;
+      // After a value (`x)`, `a]`) a `/` divides. After a condition's `)` or a block's `}` a
+      // statement starts, where it begins a regular expression; an object literal followed
+      // by a division is the rare case this gets wrong.
+      if (c === ")") expectValue = parens.pop() === true;
+      else expectValue = c !== "]";
     }
     return i;
   };
@@ -166,7 +179,8 @@ function lineFinder(text) {
 
 // The scheme, then an authority that stops at anything computed (`$`, `{`) or quoted.
 const URL_IN_CODE = /\b(https?|wss?):\/\/([\p{L}\p{N}_.~%!&*+=:@[\]-]*)/giu;
-const HOSTNAME = /^(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])$/;
+// Underscores are allowed: a container or service name such as redis_cache is a host to fetch.
+const HOSTNAME = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)*|\[[0-9a-f:.]+\])$/;
 
 /** The hostname of a URL written in code, or null when it is computed or not a host. */
 function hostOf(scheme, authority) {
