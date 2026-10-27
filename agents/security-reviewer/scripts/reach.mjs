@@ -27,8 +27,10 @@ const hollow = (s, open, close) => (s.length >= open.length + close.length && s.
   ? open + blank(s.slice(open.length, s.length - close.length)) + close
   : open + blank(s.slice(open.length)));
 
-// An identifier's characters: ID_Continue, `$`, and the two joiners, U+200C and U+200D.
-const JS_WORD = new RegExp(`[\\p{ID_Continue}$${String.fromCharCode(0x200c, 0x200d)}]+`, "uy");
+// An identifier's characters: ID_Continue, `$`, the two joiners, U+200C and U+200D, and a
+// `\u` escape, which an identifier may hold.
+const JS_ESCAPED_CHAR = String.raw`\\u[0-9a-fA-F]{4}|\\u\{[0-9a-fA-F]+\}`;
+const JS_WORD = new RegExp(`(?:[\\p{ID_Continue}$${String.fromCharCode(0x200c, 0x200d)}]|${JS_ESCAPED_CHAR})+`, "uy");
 const JS_KEYWORDS_BEFORE_EXPRESSION = new Set([
   "return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await",
   "default",
@@ -44,38 +46,42 @@ const PY_LINE_END = /[\n\r]/g;
 // Where this review cannot tell how JavaScript reads, it tries every reading: a `/` after the
 // `}` of a function's or a class's body (a declaration's end, or an expression's) or of a block
 // after a `:` (a label's or a case's, or an object literal's), or after `of`, `yield` or `await`
-// (keywords, or plain names), and `<!--` and `-->` (comments in a script, not in a module). It
-// tries at most this many readings of one program, and blanks nothing in one that has more.
+// (keywords, or plain names), and whether a `.js` or `.ts` program is a script, where `<!--`
+// and `-->` begin comments, or a module, where they do not. It tries at most this many readings
+// of one program; one that has more is read with nothing blanked.
 const JS_READINGS = 32;
 const JS_CONTEXTUAL_KEYWORDS = new Set(["of", "yield", "await"]);
+const JS_NUMBER = /(?:0[xXoObB][\da-fA-F_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)n?/y;
 const endsLine = (s) => { JS_LINE_END.lastIndex = 0; return JS_LINE_END.test(s); };
 
-/** JavaScript with its comments blanked. Strings, templates and regular expression literals
- *  are kept as they are, so a comment marker inside one is not taken for a comment. With
- *  `literals`, what lies inside each of them is blanked too, so that text a literal only
- *  contains is not taken for code. Where readings differ, a character is blanked only where
- *  every reading blanks it, so that no misreading hides code. */
-function blankJavaScriptComments(text, literals = false, goal = "either") {
+/** Every reading of a JavaScript program: for each, `code` (its comments blanked), `hollowed`
+ *  (the inside of its literals blanked too, so that text a literal only contains is not taken
+ *  for code) and `literals`, the spans of its string and template text. A program with more
+ *  readings than JS_READINGS gives one reading in which nothing is blanked and all of it may
+ *  be a literal. */
+function javaScriptReadings(text, goal = "either") {
   const readings = [];
   const pending = [[]];
   while (pending.length) {
-    if (readings.length === JS_READINGS) return text;
+    if (readings.length === JS_READINGS) return [{ code: text, hollowed: text, literals: [[0, text.length]] }];
     const prefix = pending.pop();
-    const { out, choices } = readJavaScript(text, literals, prefix, goal);
-    readings.push(out);
-    for (let j = choices.length - 1; j >= prefix.length; j -= 1) pending.push([...choices.slice(0, j), !choices[j]]);
+    const reading = readJavaScript(text, prefix, goal);
+    readings.push(reading);
+    for (let j = reading.choices.length - 1; j >= prefix.length; j -= 1) {
+      pending.push([...reading.choices.slice(0, j), !reading.choices[j]]);
+    }
   }
-  if (readings.length === 1) return readings[0];
-  const merged = [];
-  for (let k = 0; k < text.length; k += 1) merged.push(readings.some((r) => r[k] !== " ") ? text[k] : " ");
-  return merged.join("");
+  return readings;
 }
 
-/** One reading of a JavaScript program: the text with its comments (and, with `literals`, the
- *  inside of its literals) blanked, and the choice made at each uncertain point, the first
- *  ones as `prefix` gives them and the rest by default. */
-function readJavaScript(text, literals, prefix, goal) {
-  const out = [];
+
+/** One reading of a JavaScript program, with the choice made at each uncertain point: the
+ *  first ones as `prefix` gives them, and the rest by default. */
+function readJavaScript(text, prefix, goal) {
+  const code = [];
+  const hollowed = [];
+  const literals = [];
+  const emit = (s, h = s) => { code.push(s); hollowed.push(h); };
   const choices = [];
   const decide = (byDefault) => {
     const choice = choices.length < prefix.length ? prefix[choices.length] : byDefault;
@@ -83,12 +89,13 @@ function readJavaScript(text, literals, prefix, goal) {
     return choice;
   };
   const n = text.length;
+  let script = goal === "script" ? true : goal === "module" ? false : null; // decided once, at the first `<!--` or `-->`
   let expectValue = true; // whether a `/` here would begin a regular expression
   let unsure = false; // whether that is a guess, which another reading makes the other way
   let lastWord = null; // the word just before, when nothing but space or comments followed it
   let lastWasName = false; // whether that word followed a member `.` or a `#`, so is a name
   let afterDot = false; // whether a member `.` or a `#` came just before, so that a word is a name
-  let afterNumber = false; // whether the last word was a number, whose `.` is a decimal point
+  let dots = 0; // how many `.` came just before, so that `...` is told from a member `.`
   let lineStart = true; // whether only space and comments came since the line began
   let lastToken = null; // the last token, as braceKind reads it: null at the start
   const parens = []; // for each open `(`: "cond" after if, while, for or with; "block" after catch or switch
@@ -128,58 +135,65 @@ function readJavaScript(text, literals, prefix, goal) {
     while (i < n && /[a-z]/i.test(text[i])) i += 1;
     return i;
   };
-  const after = (literal) => {
+  // After a value. An unterminated string ends at its line's end, so a line starts after it.
+  const after = (slice = "") => {
     expectValue = false;
     unsure = false;
     lastWord = null;
     lastToken = "value";
     afterDot = false;
-    afterNumber = false;
-    lineStart = false;
-    return literal;
+    dots = 0;
+    lineStart = slice !== "" && endsLine(slice.at(-1));
   };
 
   // Copies code from i to the `}` that closes a template substitution (when nested) or the end.
-  const code = (i, nested) => {
+  const read = (i, nested) => {
     let depth = 0;
     while (i < n) {
       const c = text[i];
       const d = text[i + 1];
       let end;
-      if ((c === "/" && d === "/") || (c === "#" && d === "!" && i === 0)
-        // In a script, `<!--` begins a line comment, and so does `-->` at a line's start.
-        || ((text.startsWith("<!--", i) || (lineStart && text.startsWith("-->", i)))
-          && (goal === "either" ? decide(true) : goal === "script"))) {
+      const html = text.startsWith("<!--", i) || (lineStart && text.startsWith("-->", i));
+      if (html && script === null) script = decide(true);
+      // A hashbang may follow a byte order mark, which findReach turns into a space.
+      if ((c === "/" && d === "/") || (c === "#" && d === "!" && (i === 0 || (i === 1 && text[0] === " "))) || (html && script)) {
         end = lineComment(i);
-        out.push(blank(text.slice(i, end)));
+        emit(blank(text.slice(i, end)));
         i = end;
         continue;
       }
       if (c === "/" && d === "*") {
         end = blockComment(i);
-        out.push(blank(text.slice(i, end)));
+        emit(blank(text.slice(i, end)));
         if (endsLine(text.slice(i, end))) lineStart = true;
         i = end;
         continue;
       }
       if (c === "'" || c === '"') {
         end = quoted(i);
-        out.push(after(literals ? hollow(text.slice(i, end), c, c) : text.slice(i, end)));
+        const s = text.slice(i, end);
+        emit(s, hollow(s, c, c));
+        literals.push([i + 1, s.length > 1 && s.endsWith(c) ? end - 1 : end]);
+        after(s);
         i = end;
         continue;
       }
       if (c === "`") { i = template(i); after(); continue; }
       if (c === "/" && (unsure ? decide(expectValue) : expectValue)) {
         end = regex(i);
-        out.push(after(literals ? blank(text.slice(i, end)) : text.slice(i, end)));
+        emit(text.slice(i, end), blank(text.slice(i, end)));
+        after();
         i = end;
         continue;
       }
 
+      JS_NUMBER.lastIndex = i;
+      const number = /[0-9]/.test(c) || (c === "." && /[0-9]/.test(d ?? "")) ? JS_NUMBER.exec(text) : null;
+      if (number) { emit(number[0]); i += number[0].length; after(); continue; }
       JS_WORD.lastIndex = i;
       const word = JS_WORD.exec(text);
       if (word) {
-        out.push(word[0]);
+        emit(word[0]);
         i += word[0].length;
         // `x.default / 2` and `this.#default / 2` divide: there a keyword is only a name.
         expectValue = !afterDot && JS_KEYWORDS_BEFORE_EXPRESSION.has(word[0]);
@@ -189,13 +203,13 @@ function readJavaScript(text, literals, prefix, goal) {
         lastWasName = afterDot;
         lastToken = !afterDot && (word[0] === "else" || word[0] === "do") ? word[0] : "value";
         afterDot = false;
-        afterNumber = /^[0-9]/.test(word[0]);
+        dots = 0;
         lineStart = false;
         continue;
       }
       // `a++ / 2` divides: a `++` or `--` after a value leaves a value.
       if ((c === "+" || c === "-") && d === c && !expectValue) {
-        out.push(c, d);
+        emit(c + d);
         i += 2;
         after();
         continue;
@@ -207,19 +221,19 @@ function readJavaScript(text, literals, prefix, goal) {
       let closed = null;
       if (c === "{") { depth += 1; braces.push(braceKind()); }
       if (c === "}") {
-        if (nested && depth === 0) { out.push(c); return i + 1; }
+        if (nested && depth === 0) { emit(c); return i + 1; }
         depth -= 1;
         closed = braces.pop() ?? "unsure";
       }
-      out.push(c);
+      emit(c);
       i += 1;
       if (endsLine(c)) { lineStart = true; continue; }
       if (/\s/.test(c)) continue;
       lineStart = false;
       lastWord = null;
-      // Not a `.` of a spread (`...typeof /re/`) or a number's decimal point (`1. in /re/`).
-      afterDot = c === "#" || (c === "." && text[i - 2] !== "." && text[i] !== "." && !afterNumber);
-      afterNumber = false;
+      // A member `.`, not one of a spread's three (`...typeof /re/`), or a `#` of a private name.
+      afterDot = c === "#" || (c === "." && dots === 0 && text[i] !== ".");
+      dots = c === "." ? dots + 1 : 0;
       // After a value (`x)`, `a]`, an object literal's `}`) a `/` divides; after a condition's
       // `)` or a block's `}` a statement starts, where it begins a regular expression.
       unsure = closed === "unsure";
@@ -237,26 +251,31 @@ function readJavaScript(text, literals, prefix, goal) {
   };
 
   const template = (i) => {
-    out.push("`");
-    const kept = (s) => (literals ? blank(s) : s);
+    emit("`");
+    let start = i + 1;
     for (i += 1; i < n; i += 1) {
       const c = text[i];
-      if (c === "\\") { out.push(kept(text.slice(i, i + 2))); i += 1; continue; }
-      if (c === "`") { out.push(c); return i + 1; }
+      if (c === "\\") { const s = text.slice(i, i + 2); emit(s, blank(s)); i += 1; continue; }
+      if (c === "`") { literals.push([start, i]); emit(c); return i + 1; }
       if (c === "$" && text[i + 1] === "{") {
-        out.push("${");
+        literals.push([start, i]);
+        emit("${");
+        // A substitution holds an expression, so a `{` there opens an object literal.
         expectValue = true;
         unsure = false;
-        i = code(i + 2, true) - 1;
+        lastToken = "(";
+        i = read(i + 2, true) - 1;
+        start = i + 1;
         continue;
       }
-      out.push(kept(c));
+      emit(c, blank(c));
     }
+    literals.push([start, n]);
     return n;
   };
 
-  code(0, false);
-  return { out: out.join(""), choices };
+  read(0, false);
+  return { code: code.join(""), hollowed: hollowed.join(""), literals, choices };
 }
 
 // Python's lexical structure, as much of it as finding comments and imports needs: every line
@@ -311,6 +330,8 @@ function pythonTokens(text) {
   // A format spec is text with fields of its own, up to the `}` that closes its field.
   function formatSpec(i) {
     while (i < n) {
+      // `{{` is a literal brace there (Python 3.13 and later; 3.12 rejects it).
+      if (text.startsWith("{{", i)) { i += 2; continue; }
       if (text[i] === "{") { i = code(i + 1, true); continue; }
       if (text[i] === "}") return i + 1;
       i += 1;
@@ -402,18 +423,23 @@ function urlsIn(code, lineAt) {
 }
 
 // Space may sit around each `.`, as in `process\n  .env.X`; a blanked comment leaves space too.
+// A name is read as it decodes, so an escape in an identifier or a string does not hide it.
+const JS_NAME = String.raw`(?:[\p{ID_Start}_$]|${JS_ESCAPED_CHAR})(?:[\p{ID_Continue}$]|${JS_ESCAPED_CHAR})*`;
+const JS_KEY = String.raw`"((?:[^"\\\n]|\\[\s\S])+)"|'((?:[^'\\\n]|\\[\s\S])+)'|${"`"}((?:[^${"`"}\\$]|\\[\s\S])+)${"`"}`;
 const JS_ENV_READS = [
-  /\bprocess\s*(?:\?\.|\.)\s*env\s*(?:\?\.|\.)\s*([\p{L}_$][\p{L}\p{N}_$]*)/gu,
-  /\bprocess\s*(?:\?\.|\.)\s*env\s*(?:\?\.)?\s*\[\s*(["'`])([^"'`\\$]+)\1\s*\]/g,
+  new RegExp(String.raw`\bprocess\s*(?:\?\.|\.)\s*env\s*(?:\?\.|\.)\s*(${JS_NAME})`, "gu"),
+  new RegExp(String.raw`\bprocess\s*(?:\?\.|\.)\s*env\s*(?:\?\.)?\s*\[\s*(?:${JS_KEY})\s*\]`, "gu"),
 ];
 const JS_ENV_DESTRUCTURING = /\{([^{}]*)\}\s*=\s*process\s*(?:\?\.|\.)\s*env\b/g;
+// Python's string forms, as a read names them: an optional prefix, then one quoted string.
+const PY_KEY = String.raw`([rRuU]?)(?:"((?:[^"\\\n]|\\[\s\S])+)"|'((?:[^'\\\n]|\\[\s\S])+)')`;
 const PY_ENV_READS = [
-  /\bos\.environ\s*\[\s*(["'])([^"'\\]+)\1\s*\]/g,
-  /\bos\.environ\.get\(\s*(["'])([^"'\\]+)\1/g,
-  /\bos\.getenv\(\s*(["'])([^"'\\]+)\1/g,
+  new RegExp(String.raw`\bos\.environ\s*\[\s*${PY_KEY}\s*\]`, "g"),
+  new RegExp(String.raw`\bos\.environ\.get\(\s*${PY_KEY}`, "g"),
+  new RegExp(String.raw`\bos\.getenv\(\s*${PY_KEY}`, "g"),
 ];
 
-const DESTRUCTURED_KEY = /^\s*(?:(["'])(?<quoted>[^"']+)\1|(?<plain>[\p{L}_$][\p{L}\p{N}_$]*))/du;
+const DESTRUCTURED_KEY = new RegExp(String.raw`^\s*(?:"(?<dq>(?:[^"\\]|\\[\s\S])+)"|'(?<sq>(?:[^'\\]|\\[\s\S])+)'|(?<plain>${JS_NAME}))`, "du");
 
 /** The names a destructuring pattern takes from the environment. A rest element takes no
  *  one name and is not counted. */
@@ -423,9 +449,9 @@ function destructured(code, lineAt) {
     let offset = m.index + 1;
     for (const item of m[1].split(",")) {
       const key = DESTRUCTURED_KEY.exec(item);
-      if (key) {
-        const name = key.groups.quoted ?? key.groups.plain;
-        const at = offset + (key.indices.groups.quoted ?? key.indices.groups.plain)[0];
+      const name = key && jsValue(key.groups.dq ?? key.groups.sq ?? key.groups.plain);
+      if (name) {
+        const at = offset + (key.indices.groups.dq ?? key.indices.groups.sq ?? key.indices.groups.plain)[0];
         found.push({ name, line: lineAt(at), at });
       }
       offset += item.length + 1;
@@ -436,14 +462,19 @@ function destructured(code, lineAt) {
 
 function envIn(code, language, lineAt) {
   const env = [];
-  const patterns = language === "python" ? PY_ENV_READS : JS_ENV_READS;
-  for (const pattern of patterns) {
+  const python = language === "python";
+  for (const pattern of python ? PY_ENV_READS : JS_ENV_READS) {
     for (const m of code.matchAll(pattern)) {
-      const name = m[2] ?? m[1];
-      env.push({ name, line: lineAt(m.index), at: m.index });
+      const raw = python ? m[2] ?? m[3] : m[1] ?? m[2] ?? m[3];
+      const name = python ? (/[rR]/.test(m[1]) ? raw : pythonDecode(raw)) : jsValue(raw);
+      if (!name) continue;
+      // A name this review cannot decode is named as written.
+      env.push(name.includes(UNREADABLE)
+        ? { name: raw, undecodable: true, line: lineAt(m.index), at: m.index }
+        : { name, line: lineAt(m.index), at: m.index });
     }
   }
-  if (language === "javascript") env.push(...destructured(code, lineAt));
+  if (!python) env.push(...destructured(code, lineAt));
   return env;
 }
 
@@ -458,7 +489,8 @@ function spawnsIn(language, imports, tokens, lineAt) {
   }
   const spawns = imports.filter((i) => i.specifier.normalize("NFKC").split(".")[0] === "subprocess")
     .map((i) => ({ what: `import ${i.specifier}`, line: i.line, at: i.at }));
-  const t = tokens.filter((x) => x.type !== "comment" && x.type !== "newline");
+  // A line's end lies between `os.system` and a `(` on the next line, which is no call.
+  const t = tokens.filter((x) => x.type !== "comment");
   const name = (k, s) => t[k]?.type === "name" && t[k].text.normalize("NFKC") === s;
   for (let k = 0; k < t.length; k += 1) {
     if (name(k, "os") && t[k + 1]?.text === "." && name(k + 2, "system") && t[k + 3]?.text === "(") {
@@ -521,7 +553,22 @@ function jsImports(code, hollowed, lineAt) {
 // Python's imports, read from its tokens (SR-22). A statement starts the file, a logical line,
 // or follows `;` or `:`. Keywords are ASCII, as Python reads them; names are compared after
 // NFKC, as Python compares them.
-const PY_ESCAPE = /\\(?:x([0-9a-fA-F]{2})|u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8})|([0-7]{1,3})|(\r\n|\r|\n)|([\\'"abfnrtv]))/g;
+const PY_ESCAPE = /\\(?:x([0-9a-fA-F]{2})|u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8})|([0-7]{1,3})|(\r\n|\r|\n)|N\{([^}]*)\}|([\\'"abfnrtv]))/g;
+// The names of printable ASCII, U+0020 to U+007E in order, as Python's \N{…} reads them in any
+// case: all that a URL's scheme, a host or an environment name needs.
+const PY_ASCII_NAMES = new Map("SPACE|EXCLAMATION MARK|QUOTATION MARK|NUMBER SIGN|DOLLAR SIGN|PERCENT SIGN|AMPERSAND|APOSTROPHE|LEFT PARENTHESIS|RIGHT PARENTHESIS|ASTERISK|PLUS SIGN|COMMA|HYPHEN-MINUS|FULL STOP|SOLIDUS|DIGIT ZERO|DIGIT ONE|DIGIT TWO|DIGIT THREE|DIGIT FOUR|DIGIT FIVE|DIGIT SIX|DIGIT SEVEN|DIGIT EIGHT|DIGIT NINE|COLON|SEMICOLON|LESS-THAN SIGN|EQUALS SIGN|GREATER-THAN SIGN|QUESTION MARK|COMMERCIAL AT|LATIN CAPITAL LETTER A|LATIN CAPITAL LETTER B|LATIN CAPITAL LETTER C|LATIN CAPITAL LETTER D|LATIN CAPITAL LETTER E|LATIN CAPITAL LETTER F|LATIN CAPITAL LETTER G|LATIN CAPITAL LETTER H|LATIN CAPITAL LETTER I|LATIN CAPITAL LETTER J|LATIN CAPITAL LETTER K|LATIN CAPITAL LETTER L|LATIN CAPITAL LETTER M|LATIN CAPITAL LETTER N|LATIN CAPITAL LETTER O|LATIN CAPITAL LETTER P|LATIN CAPITAL LETTER Q|LATIN CAPITAL LETTER R|LATIN CAPITAL LETTER S|LATIN CAPITAL LETTER T|LATIN CAPITAL LETTER U|LATIN CAPITAL LETTER V|LATIN CAPITAL LETTER W|LATIN CAPITAL LETTER X|LATIN CAPITAL LETTER Y|LATIN CAPITAL LETTER Z|LEFT SQUARE BRACKET|REVERSE SOLIDUS|RIGHT SQUARE BRACKET|CIRCUMFLEX ACCENT|LOW LINE|GRAVE ACCENT|LATIN SMALL LETTER A|LATIN SMALL LETTER B|LATIN SMALL LETTER C|LATIN SMALL LETTER D|LATIN SMALL LETTER E|LATIN SMALL LETTER F|LATIN SMALL LETTER G|LATIN SMALL LETTER H|LATIN SMALL LETTER I|LATIN SMALL LETTER J|LATIN SMALL LETTER K|LATIN SMALL LETTER L|LATIN SMALL LETTER M|LATIN SMALL LETTER N|LATIN SMALL LETTER O|LATIN SMALL LETTER P|LATIN SMALL LETTER Q|LATIN SMALL LETTER R|LATIN SMALL LETTER S|LATIN SMALL LETTER T|LATIN SMALL LETTER U|LATIN SMALL LETTER V|LATIN SMALL LETTER W|LATIN SMALL LETTER X|LATIN SMALL LETTER Y|LATIN SMALL LETTER Z|LEFT CURLY BRACKET|VERTICAL LINE|RIGHT CURLY BRACKET|TILDE".split("|").map((name, k) => [name, String.fromCharCode(32 + k)]));
+const UNREADABLE = String.fromCharCode(0xfffd);
+
+/** A Python string body's value, its escapes decoded. A \N{…} naming anything but printable
+ *  ASCII becomes U+FFFD, which no URL or environment name holds. */
+function pythonDecode(body) {
+  return body.replace(PY_ESCAPE, (_, hex, unit, wide, octal, continued, named, single) => {
+    if (hex || unit || wide) return String.fromCodePoint(parseInt(hex ?? unit ?? wide, 16));
+    if (octal) return String.fromCharCode(parseInt(octal, 8));
+    if (named !== undefined) return PY_ASCII_NAMES.get(named.toUpperCase()) ?? UNREADABLE;
+    return continued ? "" : PY_SINGLE_ESCAPES[single];
+  });
+}
 const PY_SINGLE_ESCAPES = { "\\": "\\", "'": "'", '"': '"', a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
 // A PEP 263 declaration, on the first line or the second.
 const PY_CODING = /^[ \t\f]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)/;
@@ -540,11 +587,7 @@ function pythonValue(text, parts) {
     }
     if (!/[rR]/.test(t.prefix)) {
       if (/\\N\{/.test(body)) return null;
-      body = body.replace(PY_ESCAPE, (_, hex, unit, wide, octal, continued, single) => {
-        if (hex || unit || wide) return String.fromCodePoint(parseInt(hex ?? unit ?? wide, 16));
-        if (octal) return String.fromCharCode(parseInt(octal, 8));
-        return continued ? "" : PY_SINGLE_ESCAPES[single];
-      });
+      body = pythonDecode(body);
     }
     value += body;
   }
@@ -596,7 +639,8 @@ function pythonImports(text, tokens, lineAt) {
     }
   }
   // importlib.import_module with a literal name, anywhere code runs, f-string fields included.
-  const all = tokens.filter((x) => x.type !== "comment" && x.type !== "newline");
+  // Line ends are kept: a name at one line's end and a `(` on the next are no call.
+  const all = tokens.filter((x) => x.type !== "comment");
   const is = (k, type, s) => all[k]?.type === type && (s === undefined || all[k].text.normalize("NFKC") === s);
   for (let k = 0; k < all.length; k += 1) {
     if (!is(k, "name", "import_module") || !is(k + 1, "op", "(")) continue;
@@ -634,28 +678,70 @@ function pythonCoding(text) {
 
 const inOrder = (found) => found.sort((a, b) => a.at - b.at).map(({ at: _at, ...rest }) => rest);
 
+// A URL written with escapes in a string still names its host (SR-08): each literal whose text
+// holds a backslash is read again as it decodes.
+function literalUrls(text, spans, decode, lineAt) {
+  const urls = [];
+  for (const [start, end] of spans) {
+    const body = text.slice(start, end);
+    if (!body.includes("\\")) continue;
+    for (const m of (decode(body) ?? "").matchAll(URL_IN_CODE)) {
+      const host = hostOf(m[1], m[2]);
+      if (host) urls.push({ host, line: lineAt(start), at: start });
+    }
+  }
+  return urls;
+}
+
+/** Adds found items to a map, once each by key, keeping the first. */
+const gather = (into, items, key) => { for (const x of items) if (!into.has(key(x))) into.set(key(x), x); };
+const urlKey = (u) => `${u.line}\0${u.host}`;
+
 /** What a program reaches: { urls: [{host, line}], env: [{name, line}], spawns: [{what, line}],
  *  imports, coding }, each in the order it appears. A JavaScript import is {specifier, value,
  *  esm, line}: the string as written, its value, and whether it is an ES module import. A
  *  Python one is {specifier, names, line}: the module path without its spaces and the names a
- *  `from` imports from it, with `undecodable` when its literal cannot be read. `coding` is a
- *  Python program's PEP 263 declaration, {name, line}, or null. `path`, when given, says
- *  whether a JavaScript program is a script (.cjs) or a module (.mjs). */
+ *  `from` imports from it, with `undecodable` when its literal cannot be read. An environment
+ *  read whose name cannot be read is `undecodable` too. `coding` is a Python program's PEP 263
+ *  declaration, {name, line}, or null. `path`, when given, says whether a JavaScript program is
+ *  a script (.cjs) or a module (.mjs). */
 export function findReach(source, language, path = "") {
   // A byte order mark is not code: Python skips it, and JavaScript reads it as space.
   const text = source.charCodeAt(0) === 0xfeff ? ` ${source.slice(1)}` : source;
-  const python = language === "python";
-  const tokens = python ? pythonTokens(text) : null;
-  // Node reads a .cjs file as a script and a .mjs file as a module; a .js or .ts file may be either.
-  const goal = /\.cjs$/i.test(path) ? "script" : /\.mjs$/i.test(path) ? "module" : "either";
-  const code = python ? blankPythonComments(text, tokens) : blankJavaScriptComments(text, false, goal);
-  const lineAt = lineFinder(code);
-  const imports = python ? pythonImports(text, tokens, lineAt) : jsImports(code, blankJavaScriptComments(text, true, goal), lineAt);
+  const lineAt = lineFinder(text);
+  const urls = new Map();
+  const env = new Map();
+  let imports;
+  let spawns;
+  let coding = null;
+  if (language === "python") {
+    const tokens = pythonTokens(text);
+    const code = blankPythonComments(text, tokens);
+    const strings = tokens.filter((t) => t.type === "string" && !/[rR]/.test(t.prefix)).map((t) => t.body);
+    gather(urls, [...urlsIn(code, lineAt), ...literalUrls(text, strings, pythonDecode, lineAt)], urlKey);
+    gather(env, envIn(code, language, lineAt), (e) => `${e.at}\0${e.name}`);
+    imports = pythonImports(text, tokens, lineAt);
+    spawns = spawnsIn(language, imports, tokens, lineAt);
+    coding = pythonCoding(text);
+  } else {
+    // Node reads a .cjs file as a script and a .mjs file as a module; a .js or .ts file may be either.
+    const goal = /\.cjs$/i.test(path) ? "script" : /\.mjs$/i.test(path) ? "module" : "either";
+    // Every reading is read on its own and what any of them finds counts (SR-08), so no
+    // reading's misreading hides code and no mix of two readings makes up code.
+    const found = new Map();
+    for (const r of javaScriptReadings(text, goal)) {
+      gather(urls, [...urlsIn(r.code, lineAt), ...literalUrls(text, r.literals, jsValue, lineAt)], urlKey);
+      gather(env, envIn(r.code, language, lineAt), (e) => `${e.at}\0${e.name}`);
+      gather(found, jsImports(r.code, r.hollowed, lineAt), (i) => `${i.at}\0${i.specifier}`);
+    }
+    imports = [...found.values()];
+    spawns = spawnsIn(language, imports, null, lineAt);
+  }
   return {
-    urls: inOrder(urlsIn(code, lineAt)),
-    env: inOrder(envIn(code, language, lineAt)),
-    spawns: inOrder(spawnsIn(language, imports, tokens, lineAt)),
+    urls: inOrder([...urls.values()]),
+    env: inOrder([...env.values()]),
+    spawns: inOrder(spawns),
     imports: inOrder(imports),
-    coding: python ? pythonCoding(text) : null,
+    coding,
   };
 }

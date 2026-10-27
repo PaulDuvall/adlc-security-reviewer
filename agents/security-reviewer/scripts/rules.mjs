@@ -111,7 +111,8 @@ function undeclaredReach(pkg) {
       ...p.reach.urls.map((u) => ({ line: u.line, r: refuse("undeclared-reach",
         `the program reaches ${u.host} by a URL in its code, not through a system the host binds`,
         { system: u.host, file: p.path, line: u.line }) })),
-      ...p.reach.env.filter((e) => !bound.has(e.name) && isCredentialName(e.name)).map((e) => ({ line: e.line, r: refuse("undeclared-reach",
+      // A name this review cannot decode may be credential-like, so it counts as one.
+      ...p.reach.env.filter((e) => !bound.has(e.name) && (e.undecodable || isCredentialName(e.name))).map((e) => ({ line: e.line, r: refuse("undeclared-reach",
         `the program reads the credential-like variable ${e.name}, which the runtime requirements do not bind`,
         { system: e.name, file: p.path, line: e.line }) })),
     ];
@@ -207,14 +208,15 @@ const under = (dir, name) => (dir ? `${dir}/${name}` : name);
 const leavesPackage = (path) => path === ".." || path.startsWith("../");
 const packagePath = (dir, target) => posix.normalize(posix.join(dir || ".", target)).replace(/\/+$/, "").replace(/^\.$/, "");
 
-/** The shipped package.json in a package folder, parsed, or null. */
+/** The shipped package.json in a package folder, parsed, or null when there is none. One that
+ *  is not a JSON object is read as empty: Node stops at it, and it maps nothing. */
 function manifest(pkg, dir) {
   const file = pkg.files.find((f) => f.path === under(dir, "package.json"));
   if (!file) return null;
   try {
     const value = JSON.parse(file.bytes.toString("utf8"));
-    return isObject(value) ? value : null;
-  } catch { return null; }
+    return isObject(value) ? value : {};
+  } catch { return {}; }
 }
 
 /** The nearest shipped package.json at or above a program's folder, with its folder. */
@@ -260,7 +262,8 @@ function mapTargets(map, key) {
   const found = [];
   for (const k of Object.keys(map)) {
     const [before, after, more] = k.split("*");
-    if (after === undefined || more !== undefined || key.length < k.length - 1 || !key.startsWith(before) || !key.endsWith(after)) continue;
+    // A `*` matches one character or more, as Node matches it.
+    if (after === undefined || more !== undefined || key.length < k.length || !key.startsWith(before) || !key.endsWith(after)) continue;
     const part = key.slice(before.length, key.length - after.length);
     found.push(...strings(map[k]).map((t) => t.replaceAll("*", part)));
   }
@@ -291,13 +294,24 @@ function relativeTarget(pkg, program, value, esm) {
   return { path: rel, folderOnly: !rel || /(?:^|\/)\.{0,2}$/.test(written) };
 }
 
-/** Whether a JavaScript import loads code this review does not read. */
-function jsLoadsUnread(pkg, program, { value, esm }) {
+/** The host a URL names, as SR-08 reports it, or null when it does not parse. */
+function hostOfUrl(value) {
+  try { return new URL(value).hostname.replace(/\.+$/, "") || null; } catch { return null; }
+}
+
+/** Whether a JavaScript import loads code this review does not read. `urls` are the URLs
+ *  SR-08 found in the same program. */
+function jsLoadsUnread(pkg, program, { value, esm, line }, urls) {
   if (RELATIVE.test(value)) {
     const target = relativeTarget(pkg, program, value, esm);
     return target !== null && !loadsShipped(pkg, target.path, target.folderOnly);
   }
-  if (NOT_FILES.test(value)) return false;
+  if (/^node:/i.test(value)) return false;
+  if (NOT_FILES.test(value)) {
+    // A URL is refused here unless SR-08 refuses it already; one that does not parse loads nothing.
+    const host = hostOfUrl(value);
+    return host !== null && !urls.some((u) => u.line === line && u.host === host);
+  }
   if (ABSOLUTE.test(value)) return true;
   const scope = nearestManifest(pkg, program);
   if (value.startsWith("#")) {
@@ -311,7 +325,11 @@ function jsLoadsUnread(pkg, program, { value, esm }) {
   const name = scope?.manifest.name;
   if (typeof name !== "string" || scope.manifest.exports === undefined || (value !== name && !value.startsWith(`${name}/`))) return false;
   const exports = scope.manifest.exports;
-  const map = isObject(exports) && Object.keys(exports).some((k) => k.startsWith(".")) ? exports : { ".": exports };
+  const keys = isObject(exports) ? Object.keys(exports) : [];
+  const subpaths = keys.filter((k) => k.startsWith("."));
+  // Node refuses an exports object that mixes subpaths with conditions, so nothing loads.
+  if (subpaths.length && subpaths.length !== keys.length) return false;
+  const map = subpaths.length ? exports : { ".": exports };
   const targets = mapTargets(map, value === name ? "." : `.${value.slice(name.length)}`);
   return targets !== null && !targetsShipped(pkg, scope.dir, targets);
 }
@@ -328,22 +346,24 @@ function pythonUnread({ specifier, names, undecodable }) {
   return name === undefined ? null : `${specifier}${specifier.endsWith(".") ? "" : "."}${name}`;
 }
 
-// The codec names Python reads as UTF-8, or as ASCII, which UTF-8 reads the same: its
-// encodings.aliases for utf_8, utf_8_sig and ascii, and those codecs' own names.
-const READ_CODECS = new Set([
-  "utf_8", "utf_8_sig", "cp65001", "u8", "utf", "utf8", "utf8_ucs2", "utf8_ucs4",
-  "ascii", "646", "ansi_x3.4_1968", "ansi_x3.4_1986", "ansi_x3_4_1968", "cp367", "csascii", "ibm367",
+// The codecs Python reads as UTF-8, or as ASCII, which UTF-8 reads the same: the codecs' own
+// module names, and their encodings.aliases.
+const READ_CODEC_MODULES = new Set(["utf_8", "utf_8_sig", "ascii"]);
+const READ_CODEC_ALIASES = new Set([
+  "cp65001", "u8", "utf", "utf8", "utf8_ucs2", "utf8_ucs4",
+  "646", "ansi_x3.4_1968", "ansi_x3.4_1986", "ansi_x3_4_1968", "cp367", "csascii", "ibm367",
   "iso646_us", "iso_646.irv_1991", "iso_ir_6", "us", "us_ascii",
 ]);
 
 /** Whether Python reads a source declared in this encoding as UTF-8 or ASCII. Its tokenizer
  *  takes any name whose first 12 characters read `utf-8` or `utf-8-…` as UTF-8; any other
- *  name goes to its codec lookup, which collapses everything but letters, digits and `.`. */
+ *  name goes to its codec lookup, which collapses everything but letters, digits and `.`, and
+ *  tries an alias also with each `.` as `_`, but a module only by the name as collapsed. */
 function readCoding(name) {
   const short = name.slice(0, 12).toLowerCase().replace(/_/g, "-");
   if (short === "utf-8" || short.startsWith("utf-8-")) return true;
   const codec = name.toLowerCase().replace(/[^a-z0-9.]+/g, "_").replace(/^_+|_+$/g, "");
-  return READ_CODECS.has(codec) || READ_CODECS.has(codec.replace(/\./g, "_"));
+  return READ_CODEC_MODULES.has(codec) || READ_CODEC_ALIASES.has(codec) || READ_CODEC_ALIASES.has(codec.replace(/\./g, "_"));
 }
 
 function unreadCode(pkg) {
@@ -357,7 +377,7 @@ function unreadCode(pkg) {
         { system: `coding: ${coding.name}`, file: p.path, line: coding.line }));
     }
     for (const i of p.reach.imports) {
-      const system = python ? pythonUnread(i) : jsLoadsUnread(pkg, p.path, i) ? i.specifier : null;
+      const system = python ? pythonUnread(i) : jsLoadsUnread(pkg, p.path, i, p.reach.urls) ? i.specifier : null;
       if (system !== null) {
         out.push(refuse("unread-code", `the program loads ${system}, which this review does not read`,
           { system, file: p.path, line: i.line }));
@@ -448,7 +468,7 @@ export function acceptedKnowingly(pkg) {
   }
   const bound = boundNames(pkg);
   for (const p of programs(pkg)) {
-    const unbound = [...new Set(p.reach.env.map((e) => e.name))].filter((n) => !bound.has(n) && !isCredentialName(n));
+    const unbound = [...new Set(p.reach.env.filter((e) => !e.undecodable).map((e) => e.name))].filter((n) => !bound.has(n) && !isCredentialName(n));
     for (const name of unbound) {
       out.push({ what: `the program reads the environment variable ${name}, which no system binds`, file: p.path,
         why: "the name is not credential-like, and its value is whatever the host's environment holds" });
