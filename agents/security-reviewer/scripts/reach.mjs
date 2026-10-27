@@ -27,7 +27,8 @@ const hollow = (s, open, close) => (s.length >= open.length + close.length && s.
   ? open + blank(s.slice(open.length, s.length - close.length)) + close
   : open + blank(s.slice(open.length)));
 
-const JS_WORD = /[\p{L}\p{N}_$]+/uy;
+// An identifier's characters: ID_Continue, `$`, and the two joiners, U+200C and U+200D.
+const JS_WORD = new RegExp(`[\\p{ID_Continue}$${String.fromCharCode(0x200c, 0x200d)}]+`, "uy");
 const JS_KEYWORDS_BEFORE_EXPRESSION = new Set([
   "return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await",
   "default",
@@ -49,7 +50,8 @@ function blankJavaScriptComments(text, literals = false) {
   const n = text.length;
   let expectValue = true; // whether a `/` here would begin a regular expression
   let lastWord = null; // the word just before, when nothing but space or comments followed it
-  let afterDot = false; // whether a `.` came just before, so that a word is a property name
+  let afterDot = false; // whether a member `.` or a `#` came just before, so that a word is a name
+  let afterNumber = false; // whether the last word was a number, whose `.` is a decimal point
   const parens = []; // for each open `(`, whether it opens a condition (JS_KEYWORDS_BEFORE_CONDITION)
 
   const lineComment = (i) => { JS_LINE_END.lastIndex = i; const m = JS_LINE_END.exec(text); return m ? m.index : n; };
@@ -57,7 +59,7 @@ function blankJavaScriptComments(text, literals = false) {
   const quoted = (i) => {
     const q = text[i];
     for (i += 1; i < n; i += 1) {
-      if (text[i] === "\\") i += 1;
+      if (text[i] === "\\") i += text.startsWith("\r\n", i + 1) ? 2 : 1; // a line continuation, CRLF included
       else if (text[i] === q || text[i] === "\n") return i + 1;
     }
     return n;
@@ -97,10 +99,11 @@ function blankJavaScriptComments(text, literals = false) {
       if (word) {
         out.push(word[0]);
         i += word[0].length;
-        // `x.default / 2` divides: after a `.` a keyword is only a property's name.
+        // `x.default / 2` and `this.#default / 2` divide: there a keyword is only a name.
         expectValue = !afterDot && JS_KEYWORDS_BEFORE_EXPRESSION.has(word[0]);
         lastWord = word[0];
         afterDot = false;
+        afterNumber = /^[0-9]/.test(word[0]);
         continue;
       }
       if (c === "(") parens.push(JS_KEYWORDS_BEFORE_CONDITION.has(lastWord));
@@ -113,7 +116,9 @@ function blankJavaScriptComments(text, literals = false) {
       i += 1;
       if (/\s/.test(c)) continue;
       lastWord = null;
-      afterDot = c === ".";
+      // Not a `.` of a spread (`...typeof /re/`) or a number's decimal point (`1. in /re/`).
+      afterDot = c === "#" || (c === "." && text[i - 2] !== "." && text[i] !== "." && !afterNumber);
+      afterNumber = false;
       // After a value (`x)`, `a]`) a `/` divides. After a condition's `)` or a block's `}` a
       // statement starts, where it begins a regular expression; an object literal followed
       // by a division is the rare case this gets wrong.
@@ -145,40 +150,107 @@ function blankJavaScriptComments(text, literals = false) {
   return out.join("");
 }
 
-/** Python with its `#` comments blanked. Strings, triple-quoted ones included, are kept, or
- *  with `literals` kept with what lies between their quotes blanked. */
-function blankPythonComments(text, literals = false) {
-  const out = [];
+// Python's lexical structure, as much of it as finding comments and imports needs: every line
+// ending (\n, \r\n, a lone \r), backslash continuations, string prefixes, triple quotes, and
+// f-strings and t-strings (PEP 701, PEP 750), whose replacement fields hold code, with quotes
+// and comments of their own.
+const PY_NAME = /[\p{XID_Start}_]\p{XID_Continue}*/uy;
+const PY_STRING_PREFIX = /^(?:[uU]|[rR]|[bBfFtT]|[rR][bBfFtT]|[bBfFtT][rR])$/;
+
+/** Python's tokens, in order: names and operators as {type, start, end, text}, strings as
+ *  {type: "string", start, end, prefix, body: [start, end]}, comments, and the end of each
+ *  logical line. Tokens inside an f-string's replacement field carry `field: true`. */
+function pythonTokens(text) {
+  const tokens = [];
   const n = text.length;
-  let i = 0;
-  while (i < n) {
-    const c = text[i];
-    if (c === "#") {
-      PY_LINE_END.lastIndex = i;
-      const end = PY_LINE_END.exec(text);
-      const stop = end ? end.index : n;
-      out.push(blank(text.slice(i, stop)));
-      i = stop;
-      continue;
-    }
-    if (c === "'" || c === '"') {
-      const triple = text.startsWith(c.repeat(3), i);
-      const close = triple ? c.repeat(3) : c;
-      let j = i + close.length;
-      while (j < n) {
-        if (text[j] === "\\") { j += 2; continue; }
-        if (text.startsWith(close, j)) { j += close.length; break; }
-        if (!triple && text[j] === "\n") break;
-        j += 1;
+  const lineEnd = (i) => { PY_LINE_END.lastIndex = i; const m = PY_LINE_END.exec(text); return m ? m.index : n; };
+  const breakLength = (i) => (text.startsWith("\r\n", i) ? 2 : 1);
+
+  // Code from i, up to the `}` that closes a replacement field when inField, else to the end.
+  function code(i, inField) {
+    let depth = 0;
+    while (i < n) {
+      const c = text[i];
+      if (c === "\\" && (text[i + 1] === "\n" || text[i + 1] === "\r")) { i += 1 + breakLength(i + 1); continue; }
+      if (c === "#") { const end = lineEnd(i); tokens.push({ type: "comment", start: i, end, field: inField }); i = end; continue; }
+      if (c === "\n" || c === "\r") {
+        const end = i + breakLength(i);
+        if (!depth && !inField) tokens.push({ type: "newline", start: i, end });
+        i = end;
+        continue;
       }
-      out.push(literals ? hollow(text.slice(i, j), close, close) : text.slice(i, j));
-      i = j;
-      continue;
+      if (c === " " || c === "\t" || c === "\f") { i += 1; continue; }
+      PY_NAME.lastIndex = i;
+      const name = PY_NAME.exec(text);
+      if (name) {
+        const end = i + name[0].length;
+        if ((text[end] === "'" || text[end] === '"') && PY_STRING_PREFIX.test(name[0])) i = string(i, end, inField);
+        else { tokens.push({ type: "name", start: i, end, text: name[0], field: inField }); i = end; }
+        continue;
+      }
+      if (c === "'" || c === '"') { i = string(i, i, inField); continue; }
+      if (inField && !depth && c === "}") return i + 1;
+      if (inField && !depth && c === ":") return formatSpec(i + 1);
+      if (c === "(" || c === "[" || c === "{") depth += 1;
+      else if ((c === ")" || c === "]" || c === "}") && depth) depth -= 1;
+      tokens.push({ type: "op", start: i, end: i + 1, text: c, field: inField });
+      i += 1;
     }
-    out.push(c);
-    i += 1;
+    return n;
   }
-  return out.join("");
+
+  // A format spec is text with fields of its own, up to the `}` that closes its field.
+  function formatSpec(i) {
+    while (i < n) {
+      if (text[i] === "{") { i = code(i + 1, true); continue; }
+      if (text[i] === "}") return i + 1;
+      i += 1;
+    }
+    return n;
+  }
+
+  function string(start, at, inField) {
+    const prefix = text.slice(start, at);
+    const q = text[at];
+    const close = text.startsWith(q.repeat(3), at) ? q.repeat(3) : q;
+    const formatted = /[fFtT]/.test(prefix);
+    const token = { type: "string", start, end: n, prefix, body: [at + close.length, n], field: inField };
+    tokens.push(token);
+    let j = at + close.length;
+    while (j < n) {
+      const c = text[j];
+      if (c === "\\") {
+        // In an f-string a backslash does not escape a brace: `{` still opens a field.
+        if (formatted && (text[j + 1] === "{" || text[j + 1] === "}")) { j += 1; continue; }
+        j += 1 + (text.startsWith("\r\n", j + 1) ? 2 : 1);
+        continue;
+      }
+      if (text.startsWith(close, j)) { token.body[1] = j; token.end = j + close.length; return token.end; }
+      if (close.length === 1 && (c === "\n" || c === "\r")) { token.body[1] = j; token.end = j; return j; }
+      if (formatted && c === "{") {
+        if (text[j + 1] === "{") { j += 2; continue; }
+        j = code(j + 1, true);
+        continue;
+      }
+      j += 1;
+    }
+    return n;
+  }
+
+  code(0, false);
+  return tokens;
+}
+
+/** Python with its `#` comments blanked, those inside f-string fields too. */
+function blankPythonComments(text, tokens = pythonTokens(text)) {
+  let out = "";
+  let at = 0;
+  for (const t of tokens) {
+    if (t.type !== "comment") continue;
+    out += text.slice(at, t.start) + blank(text.slice(t.start, t.end));
+    at = t.end;
+  }
+  return out + text.slice(at);
 }
 
 // Finding reach
@@ -266,19 +338,22 @@ function envIn(code, language, lineAt) {
   return env;
 }
 
-const JS_SPAWNS = [/\b(?:from|import|require)\s*\(?\s*(["'`])(?:node:)?child_process\1/g];
-// An import starts a line or follows `:` (`if x: import subprocess`) or `;` (`a = 1; import …`).
-const PY_SPAWNS = [
-  /(?:^|[;:])[ \t]*(?:import[ \t]+[^\n#;]*\bsubprocess\b|from[ \t]+subprocess[ \t]+import\b)/gm,
-  /\bos\.system\s*\(/g,
-];
+// A program starts processes when it loads child_process (JavaScript), or imports subprocess or
+// calls os.system (Python). Both are read from its imports and tokens, so a string that only
+// names them does not count, and an escape in a specifier does not hide one.
+const JS_PROCESS_MODULE = /^(?:node:)?child_process$/;
 
-function spawnsIn(code, language, lineAt) {
-  const patterns = language === "python" ? PY_SPAWNS : JS_SPAWNS;
-  const spawns = [];
-  for (const pattern of patterns) {
-    for (const m of code.matchAll(pattern)) {
-      spawns.push({ what: m[0].replace(/^[;:]/, "").trim(), line: lineAt(m.index), at: m.index });
+function spawnsIn(language, imports, tokens, lineAt) {
+  if (language !== "python") {
+    return imports.filter((i) => JS_PROCESS_MODULE.test(i.value)).map((i) => ({ what: i.specifier, line: i.line, at: i.at }));
+  }
+  const spawns = imports.filter((i) => i.specifier.normalize("NFKC").split(".")[0] === "subprocess")
+    .map((i) => ({ what: `import ${i.specifier}`, line: i.line, at: i.at }));
+  const t = tokens.filter((x) => x.type !== "comment" && x.type !== "newline");
+  const name = (k, s) => t[k]?.type === "name" && t[k].text.normalize("NFKC") === s;
+  for (let k = 0; k < t.length; k += 1) {
+    if (name(k, "os") && t[k + 1]?.text === "." && name(k + 2, "system") && t[k + 3]?.text === "(") {
+      spawns.push({ what: "os.system(", line: lineAt(t[k].start), at: t[k].start });
     }
   }
   return spawns;
@@ -334,84 +409,133 @@ function jsImports(code, hollowed, lineAt) {
   return imports;
 }
 
-// Python's imports. A statement starts a line or follows `:` or `;`, as in PY_SPAWNS; space,
-// a form feed or a line continuation may sit between its words and its dots.
-const PY_GAP = String.raw`(?:[ \t\f]|\\\r?\n)`;
-const PY_NAME = String.raw`[\p{L}\p{N}_]`;
-// A line that a `\` continues is not a statement's start.
-const PY_START = String.raw`(?:^(?<!\\\r?\n)|[;:])`;
-const PY_FROM = new RegExp(String.raw`${PY_START}${PY_GAP}*from(?=[ \t\f.\\])((?:${PY_GAP}|[.]|${PY_NAME})*?)(?<!${PY_NAME})import(?!${PY_NAME})`, "gmu");
-const PY_IMPORT = new RegExp(String.raw`${PY_START}${PY_GAP}*import(?=[ \t\f\\])`, "gmu");
-const PY_DOTTED = new RegExp(String.raw`^(?:\s|\\)*(${PY_NAME}+(?:(?:\s|\\)*\.(?:\s|\\)*${PY_NAME}+)*)`, "u");
-const PY_IMPORT_MODULE = new RegExp(String.raw`(?<!${PY_NAME})import_module\s*\(\s*(?=[rRuU]?["'])`, "gu");
-const PY_STRINGS = { '"': /"((?:[^"\\\n]|\\[\s\S])*)"/y, "'": /'((?:[^'\\\n]|\\[\s\S])*)'/y };
-const PY_ESCAPE = /\\(?:x([0-9a-fA-F]{2})|u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8})|([0-7]{1,3})|(\r?\n)|([\\'"abfnrtv]))/g;
+// Python's imports, read from its tokens (SR-22). A statement starts the file, a logical line,
+// or follows `;` or `:`. Keywords are ASCII, as Python reads them; names are compared after
+// NFKC, as Python compares them.
+const PY_ESCAPE = /\\(?:x([0-9a-fA-F]{2})|u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8})|([0-7]{1,3})|(\r\n|\r|\n)|([\\'"abfnrtv]))/g;
 const PY_SINGLE_ESCAPES = { "\\": "\\", "'": "'", '"': '"', a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
-const squeezed = (s) => s.replace(/\\\r?\n|[ \t\f]/g, "");
+// A PEP 263 declaration, on the first line or the second.
+const PY_CODING = /^[ \t\f]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)/;
 
-/** The rest of a logical line from i, or what a `(` there holds, up to its `)`. */
-function pythonRest(hollowed, i) {
-  const open = /(?:[ \t\f]|\\\r?\n)*\(/y;
-  open.lastIndex = i;
-  if (open.test(hollowed)) {
-    const close = hollowed.indexOf(")", open.lastIndex);
-    return hollowed.slice(open.lastIndex, close === -1 ? undefined : close);
+/** The value of adjacent string tokens, as Python joins them. Undefined when it is computed
+ *  (an f-string with a field) or not a str (bytes); null when it names a character by
+ *  \N{…}, which this review cannot decode. */
+function pythonValue(text, parts) {
+  let value = "";
+  for (const t of parts) {
+    if (/[bB]/.test(t.prefix)) return undefined;
+    let body = text.slice(...t.body);
+    if (/[fFtT]/.test(t.prefix)) {
+      if (/\{/.test(body.replace(/\{\{|\}\}/g, ""))) return undefined;
+      body = body.replace(/\{\{/g, "{").replace(/\}\}/g, "}");
+    }
+    if (!/[rR]/.test(t.prefix)) {
+      if (/\\N\{/.test(body)) return null;
+      body = body.replace(PY_ESCAPE, (_, hex, unit, wide, octal, continued, single) => {
+        if (hex || unit || wide) return String.fromCodePoint(parseInt(hex ?? unit ?? wide, 16));
+        if (octal) return String.fromCharCode(parseInt(octal, 8));
+        return continued ? "" : PY_SINGLE_ESCAPES[single];
+      });
+    }
+    value += body;
   }
-  const line = /(?:[^\n\r;\\]|\\\r?\n|\\)*/y;
-  line.lastIndex = i;
-  return line.exec(hollowed)[0];
+  return value;
 }
 
-/** The first name of each comma-separated item: `a as b, c` gives a and c. */
-const pythonNames = (list) => list.split(",").map((item) => PY_DOTTED.exec(item)?.[1]).filter(Boolean)
-  .map((name) => name.replace(/\s|\\/g, ""));
-
-function pythonImports(code, hollowed, lineAt) {
+function pythonImports(text, tokens, lineAt) {
   const imports = [];
-  for (const m of hollowed.matchAll(PY_FROM)) {
-    const at = m.index + m[0].indexOf("from") + 4;
-    imports.push({ specifier: squeezed(m[1]), names: pythonNames(pythonRest(hollowed, m.index + m[0].length)), line: lineAt(at), at });
+  const t = tokens.filter((x) => !x.field && x.type !== "comment");
+  const word = (k, w) => t[k]?.type === "name" && t[k].text === w;
+  const op = (k, c) => t[k]?.type === "op" && t[k].text === c;
+  const dotted = (k) => {
+    if (t[k]?.type !== "name") return null;
+    let name = t[k].text;
+    let next = k + 1;
+    while (op(next, ".") && t[next + 1]?.type === "name") { name += `.${t[next + 1].text}`; next += 2; }
+    return { name, next };
+  };
+  for (let k = 0; k < t.length; k += 1) {
+    const prev = t[k - 1];
+    if (prev && prev.type !== "newline" && !op(k - 1, ";") && !op(k - 1, ":")) continue;
+    const at = t[k].start;
+    if (word(k, "import")) {
+      for (let j = k + 1; ;) {
+        const d = dotted(j);
+        if (!d) break;
+        imports.push({ specifier: d.name, names: [], line: lineAt(at), at });
+        j = d.next;
+        if (word(j, "as") && t[j + 1]?.type === "name") j += 2;
+        if (!op(j, ",")) break;
+        j += 1;
+      }
+    } else if (word(k, "from")) {
+      let j = k + 1;
+      let module = "";
+      while (op(j, ".") || (t[j]?.type === "name" && t[j].text !== "import")) { module += t[j].text; j += 1; }
+      if (!module || !word(j, "import")) continue;
+      j += 1;
+      if (op(j, "(")) j += 1;
+      const names = [];
+      while (t[j]?.type === "name") {
+        names.push(t[j].text);
+        j += 1;
+        if (word(j, "as") && t[j + 1]?.type === "name") j += 2;
+        if (!op(j, ",")) break;
+        j += 1;
+      }
+      imports.push({ specifier: module, names, line: lineAt(at), at });
+    }
   }
-  for (const m of hollowed.matchAll(PY_IMPORT)) {
-    const at = m.index + m[0].length;
-    for (const module of pythonNames(pythonRest(hollowed, at))) imports.push({ specifier: module, names: [], line: lineAt(at), at });
-  }
-  for (const m of hollowed.matchAll(PY_IMPORT_MODULE)) {
-    let at = m.index + m[0].length;
-    const raw = /[rR]/.test(code[at]);
-    if (/[rRuU]/.test(code[at])) at += 1;
-    const literal = PY_STRINGS[code[at]];
-    literal.lastIndex = at;
-    const found = literal.exec(code);
-    if (!found) continue;
-    CALL_ENDS.lastIndex = at + found[0].length;
-    if (!CALL_ENDS.test(hollowed)) continue;
-    const value = raw ? found[1] : found[1].replace(PY_ESCAPE, (all, hex, unit, wide, octal, continued, single) => {
-      if (hex || unit || wide) return String.fromCodePoint(parseInt(hex ?? unit ?? wide, 16));
-      if (octal) return String.fromCharCode(parseInt(octal, 8));
-      return continued ? "" : PY_SINGLE_ESCAPES[single];
-    });
-    imports.push({ specifier: value, names: [], line: lineAt(at), at });
+  // importlib.import_module with a literal name, anywhere code runs, f-string fields included.
+  const all = tokens.filter((x) => x.type !== "comment" && x.type !== "newline");
+  const is = (k, type, s) => all[k]?.type === type && (s === undefined || all[k].text.normalize("NFKC") === s);
+  for (let k = 0; k < all.length; k += 1) {
+    if (!is(k, "name", "import_module") || !is(k + 1, "op", "(")) continue;
+    let j = k + 2;
+    if (is(j, "name", "name") && is(j + 1, "op", "=")) j += 2;
+    let open = 0;
+    while (is(j, "op", "(")) { open += 1; j += 1; }
+    const parts = [];
+    while (is(j, "string")) { parts.push(all[j]); j += 1; }
+    while (open && is(j, "op", ")")) { open -= 1; j += 1; }
+    if (!parts.length || open || !(is(j, "op", ",") || is(j, "op", ")"))) continue;
+    const value = pythonValue(text, parts);
+    if (value === undefined) continue;
+    const at = parts[0].start;
+    const written = parts.map((p) => text.slice(p.start, p.end)).join(" ");
+    imports.push({ specifier: value ?? written, names: [], ...(value === null ? { undecodable: true } : {}), line: lineAt(at), at });
   }
   return imports;
+}
+
+/** A Python program's PEP 263 source encoding, as declared, or null. */
+function pythonCoding(text) {
+  const [first = "", second = ""] = text.split(/\r\n|\r|\n/, 2);
+  const m = PY_CODING.exec(first) ?? (/^[ \t\f]*(?:#.*)?$/.test(first) ? PY_CODING.exec(second) : null);
+  return m ? { name: m[1], line: PY_CODING.test(first) ? 1 : 2 } : null;
 }
 
 const inOrder = (found) => found.sort((a, b) => a.at - b.at).map(({ at: _at, ...rest }) => rest);
 
 /** What a program reaches: { urls: [{host, line}], env: [{name, line}], spawns: [{what, line}],
- *  imports }, each in the order it appears. A JavaScript import is {specifier, value, esm,
- *  line}: the string as written, its value, and whether it is an ES module import. A Python
- *  one is {specifier, names, line}: the module path without its spaces, and the names a
- *  `from` imports from it. */
-export function findReach(text, language) {
+ *  imports, coding }, each in the order it appears. A JavaScript import is {specifier, value,
+ *  esm, line}: the string as written, its value, and whether it is an ES module import. A
+ *  Python one is {specifier, names, line}: the module path without its spaces and the names a
+ *  `from` imports from it, with `undecodable` when its literal cannot be read. `coding` is a
+ *  Python program's PEP 263 declaration, {name, line}, or null. */
+export function findReach(source, language) {
+  // A byte order mark is not code: Python skips it, and JavaScript reads it as space.
+  const text = source.charCodeAt(0) === 0xfeff ? ` ${source.slice(1)}` : source;
   const python = language === "python";
-  const code = python ? blankPythonComments(text) : blankJavaScriptComments(text);
-  const hollowed = python ? blankPythonComments(text, true) : blankJavaScriptComments(text, true);
+  const tokens = python ? pythonTokens(text) : null;
+  const code = python ? blankPythonComments(text, tokens) : blankJavaScriptComments(text);
   const lineAt = lineFinder(code);
+  const imports = python ? pythonImports(text, tokens, lineAt) : jsImports(code, blankJavaScriptComments(text, true), lineAt);
   return {
     urls: inOrder(urlsIn(code, lineAt)),
     env: inOrder(envIn(code, language, lineAt)),
-    spawns: inOrder(spawnsIn(code, language, lineAt)),
-    imports: inOrder(python ? pythonImports(code, hollowed, lineAt) : jsImports(code, hollowed, lineAt)),
+    spawns: inOrder(spawnsIn(language, imports, tokens, lineAt)),
+    imports: inOrder(imports),
+    coding: python ? pythonCoding(text) : null,
   };
 }

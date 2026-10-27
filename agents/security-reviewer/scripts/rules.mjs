@@ -320,17 +320,27 @@ const parts = (module) => module.normalize("NFKC").replace(/^\.+/, "").split("."
 const unreadModule = (module) => parts(module).some((p) => UNREAD_MODULES.has(p));
 
 /** The Python module a test or tests part makes unread: the module path, or the module path
- *  with a name its `from` imports, since that name may be a submodule. Null when none. */
-function pythonUnread({ specifier, names }) {
-  if (unreadModule(specifier)) return specifier;
+ *  with a name its `from` imports, since that name may be a submodule. A literal this review
+ *  cannot decode is unread too. Null when none. */
+function pythonUnread({ specifier, names, undecodable }) {
+  if (undecodable || unreadModule(specifier)) return specifier;
   const name = names.find(unreadModule);
   return name === undefined ? null : `${specifier}${specifier.endsWith(".") ? "" : "."}${name}`;
 }
+
+// The PEP 263 names of UTF-8, and of ASCII, which UTF-8 reads the same, as Python spells them.
+const READ_CODINGS = /^(?:utf-?8|u8|utf|cp65001|ascii|us-ascii|646)$/;
 
 function unreadCode(pkg) {
   const out = [];
   for (const p of programs(pkg)) {
     const python = languageOf(p.path) === "python";
+    const coding = p.reach.coding;
+    if (coding && !READ_CODINGS.test(coding.name.toLowerCase().replace(/_/g, "-"))) {
+      // The review reads every program as UTF-8, so one decoded otherwise is not read.
+      out.push(refuse("unread-code", `the program declares the source encoding ${coding.name}, which this review does not read`,
+        { system: `coding: ${coding.name}`, file: p.path, line: coding.line }));
+    }
     for (const i of p.reach.imports) {
       const system = python ? pythonUnread(i) : jsLoadsUnread(pkg, p.path, i) ? i.specifier : null;
       if (system !== null) {
