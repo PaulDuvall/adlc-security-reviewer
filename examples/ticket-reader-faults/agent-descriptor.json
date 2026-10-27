@@ -1,0 +1,11 @@
+{
+  "format": "agent-descriptor-v1",
+  "agent_version": "0.1.0",
+  "does": "Reads support tickets and summarizes them.",
+  "offerings": [],
+  "refusals": "Writing to the ticket store.\nSummarizing a ticket it was not handed.",
+  "records": [],
+  "systems": [
+    { "name": "ticket-store", "access": "read", "needs": "" }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "review": "v1",
+  "ask": "review",
+  "package": "examples/ticket-reader-billing-hardcoded",
+  "owner": {
+    "spend_limit": { "most_micro": 5000000, "currency": "USD", "per": "day" }
+  }
+}

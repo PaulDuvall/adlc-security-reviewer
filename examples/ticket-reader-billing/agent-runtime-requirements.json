@@ -1,0 +1,40 @@
+{
+  "format": "agent-runtime-requirements-v1",
+  "runtimes": [
+    {
+      "name": "node",
+      "version": ">=22"
+    }
+  ],
+  "binaries": [],
+  "dependencies": [],
+  "systems": [
+    {
+      "name": "ticket-store",
+      "kind": "service",
+      "credential": "ticket-store-token",
+      "env": "TICKETS_TOKEN",
+      "settings": [
+        {
+          "env": "TICKETS_URL",
+          "purpose": "where the ticket store answers"
+        }
+      ]
+    },
+    {
+      "name": "billing",
+      "kind": "service",
+      "credential": "billing-key",
+      "env": "BILLING_API_KEY",
+      "settings": [
+        {
+          "env": "BILLING_URL",
+          "purpose": "where billing answers"
+        }
+      ]
+    }
+  ],
+  "ceilings": [],
+  "directories": [],
+  "job_seconds": 60
+}

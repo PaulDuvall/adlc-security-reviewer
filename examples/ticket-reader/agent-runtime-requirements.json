@@ -1,0 +1,18 @@
+{
+  "format": "agent-runtime-requirements-v1",
+  "runtimes": [{ "name": "node", "version": ">=22" }],
+  "binaries": [],
+  "dependencies": [],
+  "systems": [
+    {
+      "name": "ticket-store",
+      "kind": "service",
+      "credential": "ticket-store-token",
+      "env": "TICKETS_TOKEN",
+      "settings": [{ "env": "TICKETS_URL", "purpose": "where the ticket store answers" }]
+    }
+  ],
+  "ceilings": [],
+  "directories": [],
+  "job_seconds": 60
+}

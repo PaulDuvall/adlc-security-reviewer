@@ -145,6 +145,13 @@ node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mj
 The flags make Node itself refuse any file write or new process. The reviewer writes one line
 of JSON and exits 0, whatever the answer.
 
+To try it before writing your own request, run one of the sample agents in
+[`examples/`](examples/):
+
+```bash
+node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs < examples/requests/review-faults.json
+```
+
 ### Read the answer
 
 | Answer | What it means | Next |
@@ -153,9 +160,10 @@ of JSON and exits 0, whatever the answer.
 | `refused` | Every problem found, each with a `rule`, and the file and line where one applies | Fix them all, then run again |
 | `declined` | The request asked for something other than a review | Ask for `review`. It never grants, binds or installs |
 
-The refused answer in full, for a sample agent with the four faults the diagram above shows: a
-hard-coded billing address, an undeclared billing key, a blank reason and no spending limit.
-This sample adds them as a second function, so they sit on lines 11 and 12.
+The answer to `examples/requests/review-faults.json`, in full. Its sample agent,
+[`examples/ticket-reader-faults`](examples/ticket-reader-faults/), has the four faults the
+diagram above shows: a hard-coded billing address, an undeclared billing key, a blank reason
+and no spending limit. It adds them as a second function, so they sit on lines 11 and 12.
 
 ```json
 {
@@ -204,8 +212,10 @@ In `agent-runtime-requirements.json`:
 ```
 
 The review then passes, and lists `billing` under `accepted_knowingly`, since its access is
-`write`. A web address in a comment does not count. One in a string does, even one used only
-as a name, such as a JSON Schema address ([open question 5](docs/spec.md#open-questions)).
+`write`. [`examples/`](examples/) holds both versions: `ticket-reader-billing-hardcoded`
+and `ticket-reader-billing`. A web address in a comment does not count. One in a string
+does, even one used only as a name, such as a JSON Schema address
+([open question 5](docs/spec.md#open-questions)).
 
 ### Every refusal rule
 
@@ -310,6 +320,7 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 | `docs/spec.md` | The job, as 23 requirements | Spec owner |
 | `docs/traceability.md` | Each requirement, its tests and its program | Spec owner |
 | `agents/security-reviewer/test/`, `conformance/` | The tests and the role checks | Spec owner |
+| `examples/` | Sample agents, and the requests [Use it on your agent](#use-it-on-your-agent) runs | Spec owner |
 | Everything else: `tools/`, `.github/`, `LOCK.json`, `CLAUDE.md` | The lock, the checks and the code writer's instructions | Spec owner |
 | `agents/security-reviewer/scripts/` | The six programs | Code writer |
 | `docs/rounds.md`, `README.md` | The record of each round, and this page | Code writer |
