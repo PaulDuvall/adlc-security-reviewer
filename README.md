@@ -18,14 +18,13 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 
 ## Where it stands
 
-Status on 27 October 2026. Spec 0.3.0 and its 180 tests were locked at `bd9774f`. Round 15
-changes 10 locked files and adds 2 to ready the repository for public release, so the checks
-on GitHub fail on the lock until the spec owner locks them again. Two things are open: the
-planted-bug check, being measured again, and 27 decisions the spec leaves open.
+Status on 27 October 2026. Spec 0.3.0, its 180 tests and round 15's licence, notices and
+security policy are locked at `3030158`, and every check on GitHub passes. Two things are open:
+the planted-bug check, being measured again, and 27 decisions the spec leaves open.
 
 | | Check | Result |
 |---|---|---|
-| 🟡 | Automated checks on GitHub | Passed on `bd9774f`, the last re-lock. Fail on the lock until round 15's files are locked again |
+| ✅ | Automated checks on GitHub | Pass on `3030158`, the latest re-lock |
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
 | ✅ | Tests | 180 of 180 pass. Each one traces to a requirement |
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
@@ -336,7 +335,7 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 | Item | Owner | Where |
 |---|---|---|
 | Measure the planted-bug check again, on round 13's code and 180 tests | Code writer, running now | [docs/rounds.md](docs/rounds.md), round 12 |
-| Lock round 15's files again, and apply its two rulesets on GitHub | Spec owner | [docs/rounds.md](docs/rounds.md), round 15; `tools/handoff.sh` |
+| Optional: apply the two rulesets `tools/handoff.sh` now sets, the owner's bypass on the `handoff` tag and main's review gate. Until then a re-lock lifts the tag's ruleset, and main takes any admin's push | Spec owner | [docs/rounds.md](docs/rounds.md), round 15; `tools/handoff.sh` |
 | 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Needs input from AgentMesh: 4, not yet raised with them | [docs/spec.md](docs/spec.md#open-questions) |
 | 16 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
 | On a developer's own machine, the lock check skips files that local git settings hide: `.git/info/exclude`, global excludes or an untracked `.gitignore`. The checks on GitHub are unaffected | Spec owner; accepted as a known limit | [docs/rounds.md](docs/rounds.md), round 10 |
