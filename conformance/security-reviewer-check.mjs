@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // A conformance check for the security reviewer role, written from ROLES.md §34.4
-// (https://agentroles.ai/security-reviewer.html, section 4). UNOFFICIAL: as of 2026-10-26
+// (https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer;
+// summarized at https://agentroles.ai/security-reviewer.html, section 4). UNOFFICIAL: as of 2026-10-26
 // AgentMesh publishes no check for this role. Replace this file with the published one when
 // it exists. Mechanical: no model is called by the check.
 //

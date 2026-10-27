@@ -33,6 +33,7 @@ report it in `docs/rounds.md`. Never resolve it yourself.
   comments, no credential-like environment read, and no file that matches its own credential
   patterns. Write each pattern so it does not match its own source text.
 - Deterministic output: sorted walks, no timestamps, no randomness.
+- Work on main and push to main. No branches, no pull requests.
 
 ## Commands
 

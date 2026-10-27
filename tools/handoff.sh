@@ -5,15 +5,15 @@
 #
 # Usage: bash tools/handoff.sh <owner>/<repo> [--public]
 #
-# Reopening the Test stage later, as the spec owner: on a branch, change the locked files, then
+# Reopening the Test stage later, as the spec owner, on main: change the locked files, then
 #   node tools/removal-check.mjs && node tools/lock.mjs --write && git add -A && git commit -m "Re-lock"
 # (`git add -A` takes new files too, which LOCK.json lists), without pushing it yet. Lift the
 # "handoff tag is fixed" ruleset, move the tag to that commit, push the tag, restore the ruleset,
-# and only then push the branch:
-#   git tag -fa handoff -m "Test stage reopen" && git push -f origin handoff && git push
-# CI's diff and lock steps compare with the tag, so a pull request run that starts before the
-# tag moves stays red. Pushed in this order, its run sees the moved tag, and main's ruleset lets
-# it merge. Commits after the re-lock may touch only the Code stage's paths.
+# and only then push main:
+#   git tag -fa handoff -m "Test stage reopen" && git push -f origin handoff && git push origin main
+# CI's diff and lock steps compare with the tag, so a run that starts before the tag moves stays
+# red. Pushed in this order, main's run sees the moved tag. Commits after the re-lock may touch
+# only the Code stage's paths.
 set -euo pipefail
 
 repo="${1:?usage: bash tools/handoff.sh <owner>/<repo> [--public]}"
@@ -62,44 +62,18 @@ gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "tag
   ]
 }
 JSON
-# main takes pull requests whose verify check is green, with no bypass. 15368 is the GitHub
-# Actions app, so only a workflow run can satisfy the check.
+# Work lands on main directly, with no pull request: main cannot be deleted or rewritten, and
+# CI checks every push. The lock, the CI diff against the tag and the write hook keep the Code
+# stage off the locked files; a push that changes one turns CI red.
 gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "main ruleset: active" || echo "main ruleset: NOT created (rulesets on private repositories may need a paid plan); protect main by hand"
 {
-  "name": "main takes green pull requests",
+  "name": "main keeps its history",
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
   "rules": [
     { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    { "type": "pull_request", "parameters": {
-        "dismiss_stale_reviews_on_push": false, "require_code_owner_review": false,
-        "require_last_push_approval": false, "required_approving_review_count": 0,
-        "required_review_thread_resolution": false } },
-    { "type": "required_status_checks", "parameters": {
-        "strict_required_status_checks_policy": true,
-        "required_status_checks": [{ "context": "verify", "integration_id": 15368 }] } }
-  ]
-}
-JSON
-# A merge also needs one approval from someone other than its author (GitHub never counts the
-# author's own), and the code owner's where it touches a locked path. The person running this
-# script may bypass this ruleset alone, on pull requests only, so that a spec owner who is the
-# only code owner can still land a reopen; the bypass is recorded, and the check above still holds.
-owner_id=$(gh api user --jq .id)
-gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<JSON && echo "review ruleset: active" || echo "review ruleset: NOT created; require reviews by hand"
-{
-  "name": "main takes reviewed pull requests",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
-  "bypass_actors": [{ "actor_id": ${owner_id}, "actor_type": "User", "bypass_mode": "pull_request" }],
-  "rules": [
-    { "type": "pull_request", "parameters": {
-        "dismiss_stale_reviews_on_push": false, "require_code_owner_review": true,
-        "require_last_push_approval": true, "required_approving_review_count": 1,
-        "required_review_thread_resolution": false } }
+    { "type": "non_fast_forward" }
   ]
 }
 JSON
