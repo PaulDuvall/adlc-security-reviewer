@@ -3,42 +3,43 @@
 [![verify](https://github.com/RedactedVentures/adlc-security-reviewer/actions/workflows/verify.yml/badge.svg)](https://github.com/RedactedVentures/adlc-security-reviewer/actions/workflows/verify.yml)
 
 A security gate for AI agents. Before anyone installs an agent, this reviewer reads the agent's
-package and answers **passed**, **refused** or **declined**, with every reason checked against
-the code.
+package. It checks what the code really reaches against what the package declares. Then it
+gives one of three answers: **passed**, with a security statement; **refused**, with every
+problem listed; or **declined**, when asked to do more than review.
 
-It is the reference implementation of the ADLC **security reviewer** role
-([agentroles.ai/security-reviewer](https://agentroles.ai/security-reviewer.html), ROLES.md §34),
-the Security review stage at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages.html#security).
+It implements the security reviewer, one of the roles in the Agent Development Lifecycle (ADLC).
+The role is defined at [agentroles.ai/security-reviewer](https://agentroles.ai/security-reviewer.html),
+and its stage at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages.html#security).
 
 ## Where it stands
 
-Status on 27 October 2026, at the `handoff` tag (`f957bf2`):
+Status on 27 October 2026. The reviewer is built and every check passes. Two things are open:
+how many planted bugs the tests catch, and 31 decisions the spec leaves open.
 
 | | Check | Result |
 |---|---|---|
-| ✅ | CI on `main` | Green on the re-lock commit and on the `handoff` tag |
-| ✅ | Spec | Version 0.2.0: 23 requirements, SR-01 to SR-23 |
+| ✅ | Automated checks on GitHub | Pass on `f957bf2`, the commit where the tests were last locked |
+| ✅ | Spec | Version 0.2.0, with 23 numbered requirements |
 | ✅ | Tests | 87 of 87 pass. Each one traces to a requirement |
-| ✅ | Behavior cases | 4 of 4 of the role's conformance cases pass |
-| ✅ | The tests catch broken code | Empty placeholder programs pass 0 of 87 tests. Removing any one program fails 64 to 72 |
-| ✅ | The tests cannot be edited to pass | 32 files are locked. Any change to them turns CI red |
-| 🟡 | How many planted bugs the tests catch | 67.4% of 3,304, measured on round 8. Stryker's default "high" mark is 80%. The 894 missing tests are listed for the next reopen |
-| 🟡 | Open decisions | 10 open questions in the spec, and 21 choices the spec leaves to the code (U1 to U21) |
+| ✅ | Role checks | 4 of 4 pass. These are the four scenarios the role's definition requires. The check is local: no official one is published yet |
+| ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 87 tests pass. Deleting any one program makes 64 to 72 of the 87 tests fail |
+| ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 32 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
+| 🟡 | Planted-bug check | 3,304 small bugs were planted in copies of the code. The tests caught 2,226 of them, or 67.4%. The usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Measured before round 9's fixes. 894 of the misses need new tests: see [round 9](docs/rounds.md) |
+| 🟡 | Open decisions | [10 questions the spec leaves open](docs/spec.md#open-questions), and [21 points where the spec is silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle) |
 
 ## What it does for users
 
-The security reviewer is the gate an AI agent passes before anyone installs it. It reads the
-agent's package and the owner's spending limit, checks what the code actually reaches against
-what the package declares, and gives one of three answers.
+It reads the agent's package and the owner's spending limit. It checks every system the code
+really contacts against what the package declares. Then it gives one of three answers.
 
 ```mermaid
 flowchart LR
   pkg["<b>The agent package</b><br/>from its publisher<br/>what it says it reaches, and why<br/>its programs and files"]
   lim["<b>The owner's limits</b><br/>a spending limit, here $5.00 a day"]
-  rev["<b>Security reviewer</b><br/>reads every file<br/>checks what the code reaches<br/>against what the package declares<br/><i>no model, no network, changes nothing</i>"]
+  rev["<b>Security reviewer</b><br/>reads every shipped file<br/>checks what the code reaches<br/>against what the package declares<br/><i>no model, no network, changes nothing</i>"]
   pass["<b>Passed: a security statement</b><br/>Reaches ticket-store, read access<br/>Why: to read the tickets it summarizes<br/>Spends at most $5.00 a day<br/>Never writes to the ticket store"]
-  ref["<b>Refused: every problem named</b><br/>Reaches api.billing.example.com, line 9<br/>Reads BILLING_API_KEY, unbound, line 10<br/>No reason given for ticket-store<br/>No spending limit set by the owner"]
-  dec["<b>Declined: asked to bind a credential</b><br/>It only reviews: it grants, binds<br/>and installs nothing"]
+  ref["<b>Refused: every problem named</b><br/>Reaches api.billing.example.com, line 9<br/>Reads the secret BILLING_API_KEY,<br/>never declared, line 10<br/>No reason given for ticket-store<br/>No spending limit set by the owner"]
+  dec["<b>Declined: asked to hand over a credential</b><br/>It only reviews. It never grants access,<br/>hands out credentials or installs anything"]
   pkg --> rev
   lim --> rev
   rev --> pass
@@ -52,29 +53,31 @@ flowchart LR
   class ref no
 ```
 
-The answers above are from a real run on the suite's sample agent, `ticket-reader`, which
-summarizes support tickets.
+The passed answer is a real run on the suite's sample agent, `ticket-reader`, with a $5.00 daily
+limit. The refused answer is the same agent with four faults added: a billing web address, a
+billing key, an empty reason and no limit. The reviewer's output on `main` matches both.
 
 | Who | What they get | Why it matters |
 |---|---|---|
-| The owner installing an agent | A statement of every system the agent reaches, with its access and reason, what it may spend, what it must never do, and the risks accepted knowingly | They approve on facts checked against the code, not on the publisher's description |
-| The agent's publisher | A refusal naming every problem at once, each with its file and line | One round of fixes clears the gate |
-| The platform or security team | The same answer for the same package every time, tied to the package's digest. The reviewer never grants anything itself | Every install decision has a record, and changing one byte of the package changes its digest |
+| The owner installing an agent | A statement of every system the agent reaches, with its access and reason, what it may spend, what it must never do, and the risks the owner accepts by installing it | What the code reaches is checked against the code. The reasons and the "never" list are the publisher's own words, shown as written |
+| The agent's publisher | A refusal that lists every problem found, with the file and line where one applies | Fixes come in one batch, not one problem at a time |
+| The platform or security team | The same answer for the same request every time, stamped with the package's fingerprint (its digest). The reviewer never grants anything itself | The answer can serve as the record of the install decision. Changing one byte of a shipped file changes the fingerprint |
 
-One judgment stays with a person: whether each reason is good enough. The statement shows every
-reason and says so under `not_checked`.
+One judgment stays with a person: whether each stated reason is good enough. The answer shows
+every reason and lists this judgment as not checked.
 
 ## What has been done
 
-The repository follows the Agent Development Lifecycle (ADLC). Four stages are done.
+This repo was built in the ADLC's four build stages: requirements, design, tests and code. All
+four are done.
 
 ```mermaid
 flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.2.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
-  tst["<b>Test</b> ✅<br/>87 tests, 4 behavior cases<br/>32 files locked"]
+  tst["<b>Test</b> ✅<br/>87 tests, 4 role checks<br/>32 files locked"]
   cod["<b>Code</b> ✅<br/>6 programs, 1,543 lines<br/>Node built-ins only<br/>10 rounds"]
-  nxt["<b>Next</b><br/>add the 894 missing tests<br/>measure planted bugs again"]
+  nxt["<b>Next</b><br/>the spec owner unlocks the tests<br/>adds tests for the 894 missed bugs<br/>and measures again"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
   classDef next stroke:#9a6700,stroke-width:2px,stroke-dasharray:4
@@ -82,33 +85,35 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in ten rounds. Each round tried to break the code, then fixed what broke.
+The Code stage ran in ten rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+other rounds attacked the code and fixed what broke, except round 10, which fixed the file lock.
 [docs/rounds.md](docs/rounds.md) has the full record.
 
-| Round | What was tried | What it found and fixed |
+| Round | What was tried | What it found |
 |---|---|---|
 | 1 | Write the six programs | All 58 tests of the first spec pass |
-| 2 | 36 extra property checks | 6 bugs the tests missed |
-| 3 | Plant 1,578 bugs and see which the tests catch | 4 more bugs. The tests caught 64% |
-| 4 | One probe from the spec review | 1 bug: code hidden after an unusual line break |
-| 5 | Spec 0.2.0: 2 new requirements, SR-22 and SR-23, and several widened | All of it built; 72 tests pass |
-| 6 | Two independent reviews | About 20 ways to load code the review never read |
-| 7 | Adversarial review: four angles, a skeptic re-checks each finding | 14 confirmed. Python is now read by a real tokenizer |
-| 8 | A second adversarial review, then fuzzing against V8 and CPython | 7 confirmed. Fuzzing: 0 findings in 92,000 Python programs, and none of 72,524 JavaScript positions hidden |
-| 9 | Sort the 1,078 planted bugs the tests missed | 16 real defects, 2 of them ways past the gate: an escaped credential name, and an escaped web address |
-| 10 | Make the lock follow git | A re-lock now works in any clone. Review found 7 issues in the change |
+| 2 | 36 extra checks on generated inputs | 6 bugs the tests missed, all fixed |
+| 3 | Plant 1,578 bugs and see which the tests catch | The tests caught 64%. 4 more real bugs, all fixed |
+| 4 | One targeted attack from the spec review | 1 bug, fixed: the reviewer skipped code placed after a rare line-break character |
+| 5 | Spec 0.2.0 adds two rules: refuse code that loads files the reviewer does not read, and refuse undeclared tool servers. Other rules got stricter | Both built. 72 of 72 tests pass |
+| 6 | Two independent reviews | About 20 ways an agent could load code the reviewer never checked, all fixed |
+| 7 | Four review passes attack the code, and a skeptic re-checks each finding | 14 bugs confirmed and fixed. Python is now read by a tokenizer, not by pattern matching |
+| 8 | A second attack review; 92,000 generated Python programs; a compile check on 6,771 JavaScript programs; 3,304 planted bugs | 7 bugs confirmed and fixed. Python: 0 differences from Python's own reader. JavaScript: no code hidden in 6,771 programs. The tests caught 67.4% of the planted bugs |
+| 9 | Sort the 1,078 planted bugs the tests missed | 16 real bugs, all fixed. Two let an agent past the gate by writing a secret's name or a web address in escape codes |
+| 10 | Make the file lock use git's list of files | Locking now works in any copy of the repo. A review found 7 issues in the change, all fixed. No program changed |
 
 ## How the tests stay honest
 
-The code writer is an AI agent. It cannot change the spec or the tests to make them pass.
+The code writer is an AI agent. A hook stops it from editing the spec or the tests, and the
+checks on GitHub fail on any push that changes them.
 
 ```mermaid
 flowchart LR
   so["<b>Spec owner</b><br/>writes the spec and the tests"]
-  lock["<b>The lock</b><br/>LOCK.json: a fingerprint of 32 files<br/>the handoff tag marks the locked commit"]
-  cw["<b>Code writer, an AI agent</b><br/>may change 8 files only:<br/>the 6 programs, rounds.md, README.md"]
-  ci["<b>CI, on every push to main</b><br/>no credential in the history<br/>no locked file changed<br/>87 tests pass, 4 cases pass<br/>empty programs fail every test"]
-  so -->|"re-lock: rewrite LOCK.json<br/>and move the tag"| lock
+  lock["<b>The lock</b><br/>LOCK.json: a fingerprint of 32 files<br/>a git tag, handoff, marks where they were locked"]
+  cw["<b>Code writer, an AI agent</b><br/>may change only the 6 programs,<br/>the round record and this README"]
+  ci["<b>Checks on GitHub, on every push to main</b><br/>no credential in the history<br/>no locked file changed<br/>87 tests pass, 4 role checks pass<br/>emptied programs fail every test"]
+  so -->|"changes the spec or tests,<br/>then locks them again"| lock
   lock --> ci
   cw -->|"push"| ci
   classDef owner stroke:#0969da,stroke-width:2px
@@ -119,19 +124,18 @@ flowchart LR
   class ci gate
 ```
 
-A spec or test change is a deliberate act by the spec owner. The owner lifts the tag's
-protection, rewrites `LOCK.json`, moves the `handoff` tag, and restores the protection. Git
-records each re-lock as its own commit.
+Only the spec owner can change the spec or the tests. Each change shows in git as its own
+"Re-lock" commit.
 
 ## What is still open
 
 | Item | Owner | Where |
 |---|---|---|
-| 894 missing tests. The largest groups: what `/` starts after `}` and `)` (72), template fields (71), import forms (56) | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md), round 9 |
-| 10 open questions, such as how other module loaders and MCP server definitions are read | Named in each question | [docs/spec.md](docs/spec.md) |
-| 21 choices the spec leaves to the code (U1 to U21) | Spec owner may settle any | [docs/rounds.md](docs/rounds.md) |
-| `tools/handoff.sh` still describes the pull-request setup that `main` no longer uses | Spec owner, at the next reopen | `tools/handoff.sh` |
-| Local `npm run verify` does not see a file that a machine's own git excludes hide. CI is unaffected | Accepted | [docs/rounds.md](docs/rounds.md), round 10 |
+| Tests for 894 planted bugs the suite misses. The 9 largest groups, 444 of them, involve tricky JavaScript and Python syntax | Spec owner, the next time the tests are unlocked | [docs/rounds.md](docs/rounds.md), round 9 |
+| 10 questions the spec leaves open, such as other ways code can load code, and what an agent's tool servers run | Spec owner: 6. AgentMesh team: 4 | [docs/spec.md](docs/spec.md#open-questions) |
+| 21 points where the spec is silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
+| The setup script `tools/handoff.sh` still makes `main` accept only pull requests. `main` dropped that rule and now only blocks deletion and history rewrites | Spec owner, the next time the tests are unlocked | `tools/handoff.sh` |
+| On a developer's own machine, the lock check skips files that local git settings hide: `.git/info/exclude`, global excludes or an untracked `.gitignore`. The checks on GitHub are unaffected | Spec owner; accepted as a known limit | [docs/rounds.md](docs/rounds.md), round 10 |
 
 ## How this repository is built
 
@@ -139,8 +143,8 @@ records each re-lock as its own commit.
 |---|---|---|
 | `docs/spec.md` | The job, as 23 requirements | Spec owner |
 | `docs/traceability.md` | Each requirement, its tests and its program | Spec owner |
-| `agents/security-reviewer/test/`, `conformance/` | The tests and the behavior cases | Spec owner |
-| Everything else: `tools/`, `.github/`, `LOCK.json`, `CLAUDE.md` | The lock, the checks, CI and the code writer's instructions | Spec owner |
+| `agents/security-reviewer/test/`, `conformance/` | The tests and the role checks | Spec owner |
+| Everything else: `tools/`, `.github/`, `LOCK.json`, `CLAUDE.md` | The lock, the checks and the code writer's instructions | Spec owner |
 | `agents/security-reviewer/scripts/` | The six programs | Code writer |
 | `docs/rounds.md`, `README.md` | The record of each round, and this page | Code writer |
 
@@ -150,11 +154,11 @@ Run every check:
 npm run verify
 ```
 
-| Command | What it checks |
+| Command | What it does |
 |---|---|
-| `npm test` | The lock holds, then the 87 tests |
-| `npm run conformance` | The 4 behavior cases |
-| `npm run removal` | The tests fail against empty programs, and notice each program removed |
-| `npm run verify` | All three |
+| `npm test` | Checks no locked file changed, then runs the 87 tests |
+| `npm run conformance` | Runs the 4 role checks |
+| `npm run removal` | Checks the tests fail when the 6 programs are emptied, and when any one is deleted |
+| `npm run verify` | Runs all three |
 
 Node 22.13 or later and git. No dependencies.
