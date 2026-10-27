@@ -68,6 +68,168 @@ billing key, an empty reason and no limit. The reviewer's output on `main` match
 One judgment stays with a person: whether each stated reason is good enough. The answer shows
 every reason and lists this judgment as not checked.
 
+## Use it on your agent
+
+You have built an agent and want it on AgentMesh. Run this review before you package or
+deploy it. It names, in one answer, everything that would stop an owner installing it.
+
+### Where it fits
+
+The review is stage 08 of the [Agentic Development Lifecycle](https://agenticdevelopment.ai/stages.html).
+It comes after your code is written and reviewed, and before the agent is packaged and
+deployed. An agent joins the mesh at Deploy, stage 11, so the review comes first: the limits
+are set before any credential is placed.
+
+```mermaid
+flowchart LR
+  code["<b>06 Code, 07 Review</b><br/>your programs"]
+  decl["<b>Your declarations</b><br/>agent-descriptor.json<br/>agent-runtime-requirements.json"]
+  rev["<b>08 Security review</b><br/>this reviewer, on your machine"]
+  pkg["<b>09 Package, 10 Release</b><br/>package maker"]
+  dep["<b>11 Deploy</b><br/>deployment manager<br/>onto an AgentMesh fleet host"]
+  con["<b>12 Conformance</b><br/>conformance checker"]
+  code --> rev
+  decl --> rev
+  rev -->|"passed"| pkg
+  rev -->|"refused: fix, run again"| code
+  pkg --> dep --> con
+  rev -.->|"the statement:<br/>hand-off not yet defined"| dep
+  classDef gate stroke:#0969da,stroke-width:2px
+  classDef open stroke:#9a6700,stroke-width:2px,stroke-dasharray:4
+  class rev gate
+  class dep open
+```
+
+The lifecycle does not settle three points yet.
+
+| Gap | What to do for now |
+|---|---|
+| The [stages page](https://agenticdevelopment.ai/stages.html) lists the two declaration files as outputs of Package, stage 09. The reviewer reads them, so it cannot run without them | Write both files before the review. The package maker can start from them |
+| [ROLES.md §34.3](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#34-role-the-security-reviewer) calls the statement the record, and names no one who reads it next | Keep the statement with the install decision, and give it to whoever deploys the agent |
+| Running on a fleet host needs a host contract AgentMesh has not published ([spec](docs/spec.md#out-of-scope-for-030)) | Run it locally, as below |
+
+### What you need
+
+| Need | Detail |
+|---|---|
+| Node 22.13 or later, and a clone of this repo | No dependencies, no install step |
+| Your agent's folder | `agent-descriptor.json`, `agent-runtime-requirements.json`, every file you ship, and optionally `plugin.json` for the name and version |
+| The owner's spending limit | In millionths of the currency: `5000000` is $5.00 |
+| The owner's number for each ceiling | Only where your runtime requirements list `ceilings` |
+
+### Run it
+
+Write the request to `request.json`:
+
+```json
+{
+  "review": "v1",
+  "ask": "review",
+  "package": "/path/to/your-agent",
+  "owner": {
+    "spend_limit": { "most_micro": 5000000, "currency": "USD", "per": "day" },
+    "ceilings": []
+  }
+}
+```
+
+`package` may be relative to the folder you run from. Each `ceilings` entry gives the owner's
+`most` for one entry in your runtime requirements, matched on `system` and `per`.
+
+From the root of this repo:
+
+```bash
+node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs < request.json
+```
+
+The flags make Node itself refuse any file write or new process. The reviewer writes one line
+of JSON and exits 0, whatever the answer.
+
+### Read the answer
+
+| Answer | What it means | Next |
+|---|---|---|
+| `passed` | A `statement`: each system reached, its access and reason, the limit, what it must never do, what was accepted knowingly, and what was not checked | Package and release it. Run the review again after any change: one changed byte changes the digest |
+| `refused` | Every problem found, each with a `rule`, and the file and line where one applies | Fix them all, then run again |
+| `declined` | The request asked for something other than a review | Ask for `review`. It never grants, binds or installs |
+
+The refused answer in full, for a sample agent with the four faults the diagram above shows: a
+hard-coded billing address, an undeclared billing key, a blank reason and no spending limit.
+This sample adds them as a second function, so they sit on lines 11 and 12.
+
+```json
+{
+  "result": "refused",
+  "package": { "name": "ticket-reader", "version": "0.1.0", "digest": "sha256:cc4831d4…" },
+  "refusals": [
+    { "rule": "no-reason", "system": "ticket-store",
+      "why": "the descriptor records no reason (needs) for reaching ticket-store" },
+    { "rule": "undeclared-reach", "system": "api.billing.example.com",
+      "file": "skills/read-tickets/scripts/read.mjs", "line": 11,
+      "why": "the program reaches api.billing.example.com by a URL in its code, not through a system the host binds" },
+    { "rule": "undeclared-reach", "system": "BILLING_API_KEY",
+      "file": "skills/read-tickets/scripts/read.mjs", "line": 12,
+      "why": "the program reads the credential-like variable BILLING_API_KEY, which the runtime requirements do not bind" },
+    { "rule": "spend-limit", "why": "the owner set no spending limit" }
+  ]
+}
+```
+
+### Fix the usual first refusal
+
+Most agents are refused first for a web address written in their code. Declaring the system
+is not enough: the address must come from a setting the host binds.
+
+```js
+// Refused: the host is in the code
+fetch("https://api.billing.example.com/charge", { headers: { authorization: process.env.BILLING_API_KEY } });
+
+// Passes: the host and the key both come from what the runtime requirements bind
+fetch(`${process.env.BILLING_URL}/charge`, { headers: { authorization: process.env.BILLING_API_KEY } });
+```
+
+Then declare the system in both files. In `agent-descriptor.json`:
+
+```json
+{ "name": "billing", "access": "write", "needs": "to charge for each summary" }
+```
+
+In `agent-runtime-requirements.json`:
+
+```json
+{
+  "name": "billing", "kind": "service", "credential": "billing-key", "env": "BILLING_API_KEY",
+  "settings": [{ "env": "BILLING_URL", "purpose": "where billing answers" }]
+}
+```
+
+The review then passes, and lists `billing` under `accepted_knowingly`, since its access is
+`write`. A web address in a comment does not count. One in a string does, even one used only
+as a name, such as a JSON Schema address ([open question 5](docs/spec.md#open-questions)).
+
+### Every refusal rule
+
+| Rule | Cause | Usual fix |
+|---|---|---|
+| `bad-request` | The request is not valid JSON, lacks `"review": "v1"`, or names no package | Match the request above |
+| `unreadable` | The folder is missing, a declaration file is not a JSON object, or an `mcp.json` cannot be read | Fix the file it names |
+| `systems-mismatch` | The two declaration files name different systems | Name each system in both |
+| `no-reason` | A system has a missing or blank `needs` | Say why the agent needs it |
+| `undeclared-reach` | A program contains a web address or reads an unbound credential-like variable, or an MCP server is not a declared system | Declare the system, bind its credential and address, and read both from the environment |
+| `spend-limit` | The owner's limit is missing or malformed | Set `owner.spend_limit` |
+| `ceiling-missing` | A system that spends has no ceiling, or says the wrong side enforces it | Add a ceiling. A system with a credential needs `enforced_by: runtime` |
+| `ceiling-unset` | The owner gave no number for a ceiling | Add it under `owner.ceilings` |
+| `credential-in-files` | A shipped file holds a credential | Remove it and rotate it. The answer names the file and kind, never the value |
+| `dependency-unpinned` | A lockfile is missing, differs from its `sha256`, or leaves a package without `integrity` | Ship the lockfile and record its `sha256` |
+| `unread-code` | A program loads code the review does not read | Load only shipped files, dependencies and built-ins |
+
+### What a pass does not cover
+
+A pass is not a full audit. `not_checked` lists what was not checked, including known
+vulnerabilities in dependencies and addresses built at runtime. A person still decides whether
+each reason is good enough. The digest covers your package folder, not the release archive,
+so it will not match the digest Release records ([open question 7](docs/spec.md#open-questions)).
+
 ## What has been done
 
 This repo was built in the ADLC's four build stages: requirements, design, tests and code. All
