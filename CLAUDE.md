@@ -22,7 +22,9 @@ report it in `docs/rounds.md`. Never resolve it yourself.
   names the unit tests import; the other stand-ins' names are the design's split. Add no
   module: the locked `plugin.json` lists the six, and the lock refuses any other file there.
 - `docs/rounds.md`: your record of each round.
-- `README.md`: status lines only.
+- `README.md`: the page people read first. Keep all of it current, not only the status lines.
+- `examples/`: the sample agents, their requests, and the answer recorded for each request.
+  The suite checks that the reviewer gives each recorded answer.
 
 ## Constraints
 
@@ -34,6 +36,9 @@ report it in `docs/rounds.md`. Never resolve it yourself.
   patterns. Write each pattern so it does not match its own source text.
 - Deterministic output: sorted walks, no timestamps, no randomness.
 - Work on main and push to main. No branches, no pull requests.
+- Every push that changes the programs, the tests, the spec, the rounds or the examples refreshes
+  `README.md` in the same push: its status, its figures and its diagrams. `npm run readme`
+  checks the figures against the repository, and CI runs it on every push.
 
 ## Commands
 
@@ -42,16 +47,18 @@ report it in `docs/rounds.md`. Never resolve it yourself.
 | `npm test` | lock holds, then the full suite |
 | `npm run conformance` | the §34.4 behavioral cases |
 | `npm run removal` | suite fails against stand-ins; notices each program removed |
-| `npm run verify` | all three |
+| `npm run readme` | the README's figures match the repository |
+| `npm run verify` | all four |
 
 ## Verifying your work
 
 Run `npm run verify` before reporting any task done, and paste its output. Healthy output shows
 `lock holds: N files unchanged`, `# fail 0`, `4 of 4 cases pass`,
-`pass  with the programs: N of N traced tests pass, by name`, and
-`pass  against empty stand-ins: 0 of N tests pass (must be 0, with all N traced tests run)`.
+`pass  with the programs: N of N traced tests pass, by name`,
+`pass  against empty stand-ins: 0 of N tests pass (must be 0, with all N traced tests run)`, and
+`README current: …`.
 
 ## Done when
 
-All three commands exit 0, no locked file changed, and `docs/rounds.md` records every round:
-what failed, what changed, and anything the statement did not settle.
+All four commands exit 0, no locked file changed, `README.md` is current, and `docs/rounds.md`
+records every round: what failed, what changed, and anything the statement did not settle.

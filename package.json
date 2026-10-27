@@ -1,6 +1,6 @@
 {
   "name": "adlc-security-reviewer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -9,6 +9,7 @@
     "test": "node tools/lock.mjs --verify && node --test \"agents/security-reviewer/test/*.test.mjs\"",
     "conformance": "node conformance/security-reviewer-check.mjs --cmd \"node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs\"",
     "removal": "node tools/removal-check.mjs",
-    "verify": "npm test && npm run conformance && npm run removal"
+    "readme": "node tools/readme-check.mjs",
+    "verify": "npm test && npm run conformance && npm run removal && npm run readme"
   }
 }

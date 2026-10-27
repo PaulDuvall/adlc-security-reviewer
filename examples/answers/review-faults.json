@@ -1,0 +1,33 @@
+{
+  "result": "refused",
+  "package": {
+    "name": "ticket-reader",
+    "version": "0.1.0",
+    "digest": "sha256:cc4831d430f912cc3090f993a62cfa520435545e7600ba72732f5a537ac8e4e5"
+  },
+  "refusals": [
+    {
+      "rule": "no-reason",
+      "system": "ticket-store",
+      "why": "the descriptor records no reason (needs) for reaching ticket-store"
+    },
+    {
+      "rule": "undeclared-reach",
+      "system": "api.billing.example.com",
+      "file": "skills/read-tickets/scripts/read.mjs",
+      "line": 11,
+      "why": "the program reaches api.billing.example.com by a URL in its code, not through a system the host binds"
+    },
+    {
+      "rule": "undeclared-reach",
+      "system": "BILLING_API_KEY",
+      "file": "skills/read-tickets/scripts/read.mjs",
+      "line": 12,
+      "why": "the program reads the credential-like variable BILLING_API_KEY, which the runtime requirements do not bind"
+    },
+    {
+      "rule": "spend-limit",
+      "why": "the owner set no spending limit"
+    }
+  ]
+}

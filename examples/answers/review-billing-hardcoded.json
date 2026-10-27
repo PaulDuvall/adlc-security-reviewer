@@ -1,0 +1,17 @@
+{
+  "result": "refused",
+  "package": {
+    "name": "ticket-reader",
+    "version": "0.1.0",
+    "digest": "sha256:1bd2564329f5f67d82fd1df121797ff0ced2738828d5d2d81e8e7189f498e1a2"
+  },
+  "refusals": [
+    {
+      "rule": "undeclared-reach",
+      "system": "api.billing.example.com",
+      "file": "skills/read-tickets/scripts/read.mjs",
+      "line": 11,
+      "why": "the program reaches api.billing.example.com by a URL in its code, not through a system the host binds"
+    }
+  ]
+}

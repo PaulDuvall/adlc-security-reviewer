@@ -23,6 +23,7 @@ export const WRITABLE = [
   /^agents\/security-reviewer\/scripts\/(?:read-package|reach|secrets|rules|statement|review)\.mjs$/,
   /^docs\/rounds\.md$/,
   /^README\.md$/,
+  /^examples\//,
 ];
 export const writable = (p) => WRITABLE.some((r) => r.test(p));
 
@@ -100,7 +101,7 @@ if (mode === "imported") {
   }
   for (const p of Object.keys(now)) if (!(p in recorded)) problems.push(`added outside the Code stage's paths: ${p}`);
   if (problems.length) {
-    process.stderr.write(`The handoff lock does not hold. The Code stage may write only:\n  the six programs in agents/security-reviewer/scripts/\n  docs/rounds.md\n  README.md\n${problems.map((x) => `  ${x}`).join("\n")}\n`);
+    process.stderr.write(`The handoff lock does not hold. The Code stage may write only:\n  the six programs in agents/security-reviewer/scripts/\n  docs/rounds.md\n  README.md\n  examples/\n${problems.map((x) => `  ${x}`).join("\n")}\n`);
     process.exit(1);
   }
   process.stdout.write(`lock holds: ${Object.keys(recorded).length} files unchanged\n`);

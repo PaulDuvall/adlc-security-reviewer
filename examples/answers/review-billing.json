@@ -1,0 +1,56 @@
+{
+  "result": "passed",
+  "statement": {
+    "format": "security-statement-v1",
+    "package": {
+      "name": "ticket-reader",
+      "version": "0.1.0",
+      "digest": "sha256:68b994ec0b3f66208e7314b1f0c5a0af5c1f94865a5a37d5348b8caa2ff801f0"
+    },
+    "reaches": [
+      {
+        "system": "ticket-store",
+        "access": "read",
+        "why": "to read the tickets it summarizes",
+        "kind": "service",
+        "credential": "ticket-store-token"
+      },
+      {
+        "system": "billing",
+        "access": "write",
+        "why": "to charge for each summary",
+        "kind": "service",
+        "credential": "billing-key"
+      }
+    ],
+    "spends": {
+      "limit": {
+        "most_micro": 5000000,
+        "currency": "USD",
+        "per": "day"
+      },
+      "ceilings": []
+    },
+    "never": [
+      "Writing to the ticket store.",
+      "Summarizing a ticket it was not handed.",
+      "reach any destination outside the systems in reaches"
+    ],
+    "accepted_knowingly": [
+      {
+        "what": "billing is reached with access write, not read",
+        "system": "billing",
+        "why": "the declaration asks for it, and the agent can change what it holds"
+      }
+    ],
+    "not_checked": [
+      "known vulnerabilities in dependencies",
+      "destinations and module paths computed at runtime, such as a URL, variable name or module path built from a value",
+      "whether each reason is sufficient; a person decides that",
+      "behavior when running; the programs were read, not run",
+      "files under test, tests, node_modules and .git directories, and files named *.test.*, which were not read",
+      "offering authority, external inputs and workspaces, which were not read"
+    ],
+    "decided_by": "rule"
+  }
+}

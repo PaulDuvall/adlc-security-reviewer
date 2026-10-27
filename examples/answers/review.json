@@ -1,0 +1,43 @@
+{
+  "result": "passed",
+  "statement": {
+    "format": "security-statement-v1",
+    "package": {
+      "name": "ticket-reader",
+      "version": "0.1.0",
+      "digest": "sha256:61bf65e20fdf31b0fe2a5e585fc99cfde122fb3e0af77fcab95d585342b2d4a0"
+    },
+    "reaches": [
+      {
+        "system": "ticket-store",
+        "access": "read",
+        "why": "to read the tickets it summarizes",
+        "kind": "service",
+        "credential": "ticket-store-token"
+      }
+    ],
+    "spends": {
+      "limit": {
+        "most_micro": 5000000,
+        "currency": "USD",
+        "per": "day"
+      },
+      "ceilings": []
+    },
+    "never": [
+      "Writing to the ticket store.",
+      "Summarizing a ticket it was not handed.",
+      "reach any destination outside the systems in reaches"
+    ],
+    "accepted_knowingly": [],
+    "not_checked": [
+      "known vulnerabilities in dependencies",
+      "destinations and module paths computed at runtime, such as a URL, variable name or module path built from a value",
+      "whether each reason is sufficient; a person decides that",
+      "behavior when running; the programs were read, not run",
+      "files under test, tests, node_modules and .git directories, and files named *.test.*, which were not read",
+      "offering authority, external inputs and workspaces, which were not read"
+    ],
+    "decided_by": "rule"
+  }
+}

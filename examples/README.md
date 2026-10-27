@@ -19,3 +19,12 @@ node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mj
 ```
 
 Each request names its agent relative to the repo root.
+
+`answers/` holds the answer the reviewer gives to each request, under the same file name. The
+suite runs every request in `requests/` and fails if an answer differs from its recorded one,
+so the examples stay true as the reviewer changes. After adding or changing an example, record
+its answers again from the root of this repo:
+
+```bash
+for r in examples/requests/*.json; do node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs < "$r" | node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(0, "utf8")), null, 2) + "\n")' > "examples/answers/$(basename "$r")"; done
+```

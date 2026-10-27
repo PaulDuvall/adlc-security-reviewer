@@ -14,19 +14,20 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 
 ## Where it stands
 
-Status on 27 October 2026. Spec 0.3.0 and 92 new tests have landed, and all 179 tests pass. The
-checks on GitHub fail until the spec owner re-locks the changed files. Two things are open: the
-planted-bug check, being measured again, and 27 decisions the spec leaves open.
+Status on 27 October 2026. Spec 0.3.0 and its tests are locked, and all 180 tests pass. The
+latest change makes `examples/` the code writer's and checks the README's figures; the checks on
+GitHub fail on it until the spec owner re-locks. Two things are open: the planted-bug check,
+being measured again, and 27 decisions the spec leaves open.
 
 | | Check | Result |
 |---|---|---|
-| 🟡 | Automated checks on GitHub | Fail until the spec owner re-locks spec 0.3.0 and its tests. They last passed on `380f67b` |
+| 🟡 | Automated checks on GitHub | Passed on `6031543`, the re-lock of spec 0.3.0. Fail on the latest change until the spec owner re-locks it |
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
-| ✅ | Tests | 179 of 179 pass. Each one traces to a requirement |
+| ✅ | Tests | 180 of 180 pass. Each one traces to a requirement |
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
-| ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 179 tests pass. Deleting any one program makes 121 to 156 of the 179 tests fail |
-| ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 32 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
-| 🟡 | Planted-bug check | Before this reopen, 3,304 small bugs were planted in copies of the code, and the tests caught 2,226 of them, or 67.4%. The usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Round 9's 58 test ideas are now 84 tests, and a review of them added 8 more; the check is being measured again |
+| ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
+| ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 33 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
+| 🟡 | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Round 8: 67.4% of 3,304. Before this reopen, on round 11's code and 87 tests: `reach.mjs` 70.0% of 2,047, the other five programs still being measured. After the reopen, on round 13's code and 180 tests: being measured |
 | 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [16 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21 |
 
 ## What it does for users
@@ -146,7 +147,8 @@ The flags make Node itself refuse any file write or new process. The reviewer wr
 of JSON and exits 0, whatever the answer.
 
 To try it before writing your own request, run one of the sample agents in
-[`examples/`](examples/):
+[`examples/`](examples/). Each request's answer is recorded in `examples/answers/`, and the suite
+checks that the reviewer still gives it:
 
 ```bash
 node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs < examples/requests/review-faults.json
@@ -249,9 +251,9 @@ four are done.
 flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
-  tst["<b>Test</b> ✅<br/>179 tests, 4 role checks<br/>32 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 1,599 lines<br/>Node built-ins only<br/>13 rounds"]
-  nxt["<b>Next</b><br/>the spec owner re-locks<br/>planted bugs measured again<br/>27 open decisions settled"]
+  tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>33 files locked"]
+  cod["<b>Code</b> ✅<br/>6 programs, 1,599 lines<br/>Node built-ins only<br/>14 rounds"]
+  nxt["<b>Next</b><br/>the spec owner re-locks round 14<br/>planted bugs measured again<br/>27 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
   classDef next stroke:#9a6700,stroke-width:2px,stroke-dasharray:4
@@ -259,8 +261,9 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in thirteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
-other rounds attacked the code and fixed what broke, except round 10, which fixed the file lock.
+The Code stage ran in fourteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+other rounds attacked the code and fixed what broke, except rounds 10 and 14, which changed the
+checks around it.
 [docs/rounds.md](docs/rounds.md) has the full record.
 
 | Round | What was tried | What it found |
@@ -278,6 +281,7 @@ other rounds attacked the code and fixed what broke, except round 10, which fixe
 | 11 | Check the 58 test ideas against current code, then compare every legacy escape with Node | 1 bug, fixed: `require("./test\5710.js")` let an agent load an unread file past the gate. All 4,686 legacy escapes now decode as Node decodes them |
 | 12 | Spec 0.3.0 and 84 new tests from the spec owner's reopen | 3 new tests failed until fixed: a specifier with an escape that cannot be decoded is refused, `process['env']` reads count, and an encoding declaration's line counts `\n` only. All 171 tests pass |
 | 13 | An adversarial review of the reopen, then a comparison with Node of 1,716 environment-read forms | 6 gaps, all fixed: a 4,000-point program ran the reviewer out of memory; a long run of space took it quadratic time; `.mts`, `.cts` and `.pyw` programs went unread; an escape in `process` or `env` hid a read; overlapping credentials leaked a fragment; a `%5C` import was refused. 8 new tests; all 179 pass |
+| 14 | Make `examples/` the code writer's, check each example's recorded answer, and check the README's figures on every push | No program changed. The examples test fails on a wrong recorded answer, and the README check on a stale figure. All 180 tests pass |
 
 ## How the tests stay honest
 
@@ -287,9 +291,9 @@ checks on GitHub fail on any push that changes them.
 ```mermaid
 flowchart LR
   so["<b>Spec owner</b><br/>writes the spec and the tests"]
-  lock["<b>The lock</b><br/>LOCK.json: a fingerprint of 32 files<br/>a git tag, handoff, marks where they were locked"]
-  cw["<b>Code writer, an AI agent</b><br/>may change only the 6 programs,<br/>the round record and this README"]
-  ci["<b>Checks on GitHub, on every push to main</b><br/>no credential in the history<br/>no locked file changed<br/>179 tests pass, 4 role checks pass<br/>emptied programs fail every test"]
+  lock["<b>The lock</b><br/>LOCK.json: a fingerprint of 33 files<br/>a git tag, handoff, marks where they were locked"]
+  cw["<b>Code writer, an AI agent</b><br/>may change only the 6 programs,<br/>the round record, this README<br/>and the examples"]
+  ci["<b>Checks on GitHub, on every push to main</b><br/>no credential in the history<br/>no locked file changed<br/>180 tests pass, 4 role checks pass<br/>emptied programs fail every test<br/>the README's figures are current"]
   so -->|"changes the spec or tests,<br/>then locks them again"| lock
   lock --> ci
   cw -->|"push"| ci
@@ -308,7 +312,7 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 
 | Item | Owner | Where |
 |---|---|---|
-| Measure the planted-bug check again, now that round 9's ideas are 84 tests | Code writer, after the re-lock | [docs/rounds.md](docs/rounds.md), round 12 |
+| Measure the planted-bug check again, on round 13's code and 180 tests | Code writer, running now | [docs/rounds.md](docs/rounds.md), round 12 |
 | 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. AgentMesh team: 4 | [docs/spec.md](docs/spec.md#open-questions) |
 | 16 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
 | On a developer's own machine, the lock check skips files that local git settings hide: `.git/info/exclude`, global excludes or an untracked `.gitignore`. The checks on GitHub are unaffected | Spec owner; accepted as a known limit | [docs/rounds.md](docs/rounds.md), round 10 |
@@ -320,10 +324,10 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 | `docs/spec.md` | The job, as 23 requirements | Spec owner |
 | `docs/traceability.md` | Each requirement, its tests and its program | Spec owner |
 | `agents/security-reviewer/test/`, `conformance/` | The tests and the role checks | Spec owner |
-| `examples/` | Sample agents, and the requests [Use it on your agent](#use-it-on-your-agent) runs | Spec owner |
 | Everything else: `tools/`, `.github/`, `LOCK.json`, `CLAUDE.md` | The lock, the checks and the code writer's instructions | Spec owner |
 | `agents/security-reviewer/scripts/` | The six programs | Code writer |
 | `docs/rounds.md`, `README.md` | The record of each round, and this page | Code writer |
+| `examples/` | Sample agents, the requests [Use it on your agent](#use-it-on-your-agent) runs, and the answer recorded for each | Code writer; the suite checks each answer |
 
 Run every check:
 
@@ -333,9 +337,10 @@ npm run verify
 
 | Command | What it does |
 |---|---|
-| `npm test` | Checks no locked file changed, then runs the 179 tests |
+| `npm test` | Checks no locked file changed, then runs the 180 tests |
 | `npm run conformance` | Runs the 4 role checks |
 | `npm run removal` | Checks the tests fail when the 6 programs are emptied, and when any one is deleted |
-| `npm run verify` | Runs all three |
+| `npm run readme` | Checks the README's figures against the repository: spec version, tests, rounds, program lines, locked files |
+| `npm run verify` | Runs all four |
 
 Node 22.13 or later and git. No dependencies.

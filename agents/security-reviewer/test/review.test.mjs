@@ -1,7 +1,7 @@
 // The behavioral suite: the reviewer run as a command, one request in, one answer out.
 // Each test name starts with the requirement it checks, from docs/spec.md.
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import {
@@ -2080,4 +2080,15 @@ test("SR-01 answers for a program with a long run of space after a name, as one 
   const r = review(p);
   assert.equal(r.status, 0, r.stderr.slice(0, 300));
   assert.equal(r.answer?.result, "passed", JSON.stringify(r.answer?.refusals ?? null));
+});
+
+test("SR-20 gives each example request in examples/requests the answer recorded for it in examples/answers", () => {
+  const examples = join(AGENT, "..", "..", "examples");
+  const names = readdirSync(join(examples, "requests")).filter((f) => f.endsWith(".json")).sort();
+  assert.ok(names.length > 0, "examples/requests holds at least one request");
+  for (const name of names) {
+    const { status, answer } = run(readFileSync(join(examples, "requests", name), "utf8"));
+    assert.equal(status, 0, name);
+    assert.deepEqual(answer, JSON.parse(readFileSync(join(examples, "answers", name), "utf8")), `${name}: the answer differs from examples/answers/${name}`);
+  }
 });

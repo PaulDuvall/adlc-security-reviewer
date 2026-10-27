@@ -51,11 +51,14 @@ jobs:
         run: |
           git rev-parse -q --verify refs/tags/handoff >/dev/null || { echo "no handoff tag"; exit 1; }
           # --no-renames lists a renamed file under its old name too, so a locked file cannot leave by a rename.
-          bad=$(git diff --no-renames --name-only handoff HEAD | grep -vE '^(agents/security-reviewer/scripts/(read-package|reach|secrets|rules|statement|review)\.mjs|docs/rounds\.md|README\.md)$' || true)
+          bad=$(git diff --no-renames --name-only handoff HEAD | grep -vE '^(agents/security-reviewer/scripts/(read-package|reach|secrets|rules|statement|review)\.mjs|docs/rounds\.md|README\.md|examples/.+)$' || true)
           if [ -n "$bad" ]; then echo "changed outside the Code stage's paths:"; echo "$bad"; exit 1; fi
 
       - name: The handoff lock holds
         run: node tools/lock.mjs --verify
+
+      - name: The README's figures are current
+        run: node tools/readme-check.mjs
 
       - name: "Code stage: the suite passes"
         if: steps.stage.outputs.stage == 'code'
