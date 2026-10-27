@@ -436,11 +436,12 @@ const JS_KEY = String.raw`"((?:[^"\\\n]|\\[\s\S])+)"|'((?:[^'\\\n]|\\[\s\S])+)'|
 // `process.env`, or `process["env"]` in any quotes, with `?.` for any `.` and either part in
 // parentheses or not (SR-09). Each part
 // is matched as any name or key and kept only where it decodes to `process` and `env`, so an
-// escape such as `\u0070rocess` or `["e\x6ev"]` does not hide a read.
-const JS_ENV = String.raw`(?:\b|(?<![\w\\])(?=\\u))(${JS_NAME})(?:\s*\))*\s*(?:(?:\?\.|\.)\s*(${JS_NAME})|(?:\?\.)?\s*\[\s*(?:${JS_KEY})\s*\])(?:\s*\))*`;
+// escape such as `\u0070rocess` or `["e\x6ev"]` does not hide a read. Only one `\s*` may claim a run of space, so a long run costs
+// linear time, not quadratic.
+const JS_ENV = String.raw`(?:\b|(?<![\w\\])(?=\\u))(${JS_NAME})(?:\s*\))*\s*(?:(?:\?\.|\.)\s*(${JS_NAME})|(?:\?\.\s*)?\[\s*(?:${JS_KEY})\s*\])(?:\s*\))*`;
 const JS_ENV_READS = [
   new RegExp(String.raw`${JS_ENV}\s*(?:\?\.|\.)\s*(${JS_NAME})`, "gu"),
-  new RegExp(String.raw`${JS_ENV}\s*(?:\?\.)?\s*\[\s*(?:${JS_KEY})\s*\]`, "gu"),
+  new RegExp(String.raw`${JS_ENV}\s*(?:\?\.\s*)?\[\s*(?:${JS_KEY})\s*\]`, "gu"),
 ];
 const JS_ENV_DESTRUCTURING = new RegExp(String.raw`\{([^{}]*)\}\s*=\s*${JS_ENV}`, "gu");
 
