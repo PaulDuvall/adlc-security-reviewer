@@ -516,7 +516,8 @@ const JS_STRINGS = {
 };
 // A call whose argument is more than one literal names a module computed at runtime.
 const CALL_ENDS = /\s*[,)]/y;
-const JS_ESCAPE = /\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|(\r\n|[\n\r\u2028\u2029])|([0-7]{1,3})|([\s\S]))/g;
+// A legacy octal escape takes a third digit only after 0 to 3, as Annex B reads it: `\571` is `/1`.
+const JS_ESCAPE = /\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|(\r\n|[\n\r\u2028\u2029])|([0-3][0-7]{0,2}|[4-7][0-7]?)|([\s\S]))/g;
 const JS_SINGLE_ESCAPES = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
 
 /** A JavaScript string literal's value, its escapes decoded. Null when one is malformed. */

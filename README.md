@@ -77,7 +77,7 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.2.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>87 tests, 4 role checks<br/>32 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 1,543 lines<br/>Node built-ins only<br/>10 rounds"]
+  cod["<b>Code</b> ✅<br/>6 programs, 1,544 lines<br/>Node built-ins only<br/>11 rounds"]
   nxt["<b>Next</b><br/>the spec owner unlocks the tests<br/>adds tests for the 894 missed bugs<br/>and measures again"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
@@ -86,7 +86,7 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in ten rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+The Code stage ran in eleven rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
 other rounds attacked the code and fixed what broke, except round 10, which fixed the file lock.
 [docs/rounds.md](docs/rounds.md) has the full record.
 
@@ -102,6 +102,7 @@ other rounds attacked the code and fixed what broke, except round 10, which fixe
 | 8 | A second attack review; 92,000 generated Python programs; a compile check on 6,771 JavaScript programs; 3,304 planted bugs | 7 bugs confirmed and fixed. Python: 0 differences from Python's own reader. JavaScript: no code hidden in 6,771 programs. The tests caught 67.4% of the planted bugs |
 | 9 | Sort the 1,078 planted bugs the tests missed | 16 real bugs, all fixed. Two let an agent past the gate by writing a secret's name or a web address in escape codes |
 | 10 | Make the file lock use git's list of files | Locking now works in any copy of the repo. A review found 7 issues in the change, all fixed. No program changed |
+| 11 | Check the 58 test ideas against current code, then compare every legacy escape with Node | 1 bug, fixed: `require("./test\5710.js")` let an agent load an unread file past the gate. All 4,686 legacy escapes now decode as Node decodes them |
 
 ## How the tests stay honest
 
