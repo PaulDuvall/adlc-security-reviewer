@@ -8,8 +8,9 @@ gives one of three answers: **passed**, with a security statement; **refused**, 
 problem listed; or **declined**, when asked to do more than review.
 
 It implements the security reviewer, one of the roles in the Agent Development Lifecycle (ADLC).
-The role is defined at [agentroles.ai/security-reviewer](https://agentroles.ai/security-reviewer.html),
-and its stage at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages.html#security).
+The role is defined in [ROLES.md §34](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#34-role-the-security-reviewer) of the Common Agent
+Standards, summarized at [agentroles.ai/security-reviewer](https://agentroles.ai/security-reviewer.html),
+and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages.html#security).
 
 ## Where it stands
 
@@ -21,7 +22,7 @@ how many planted bugs the tests catch, and 31 decisions the spec leaves open.
 | ✅ | Automated checks on GitHub | Pass on `f957bf2`, the commit where the tests were last locked |
 | ✅ | Spec | Version 0.2.0, with 23 numbered requirements |
 | ✅ | Tests | 87 of 87 pass. Each one traces to a requirement |
-| ✅ | Role checks | 4 of 4 pass. These are the four scenarios the role's definition requires. The check is local: no official one is published yet |
+| ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 87 tests pass. Deleting any one program makes 64 to 72 of the 87 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 32 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
 | 🟡 | Planted-bug check | 3,304 small bugs were planted in copies of the code. The tests caught 2,226 of them, or 67.4%. The usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Measured before round 9's fixes. 894 of the misses need new tests: see [round 9](docs/rounds.md) |
