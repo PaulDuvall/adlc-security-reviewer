@@ -41,18 +41,69 @@ const JS_KEYWORDS_BEFORE_CONDITION = new Set(["if", "while", "for", "with"]);
 const JS_LINE_END = /[\n\r\u2028\u2029]/g;
 const PY_LINE_END = /[\n\r]/g;
 
+// Where this review cannot tell how JavaScript reads, it tries every reading: a `/` after the
+// `}` of a function's or a class's body (a declaration's end, or an expression's) or of a block
+// after a `:` (a label's or a case's, or an object literal's), or after `of`, `yield` or `await`
+// (keywords, or plain names), and `<!--` and `-->` (comments in a script, not in a module). It
+// tries at most this many readings of one program, and blanks nothing in one that has more.
+const JS_READINGS = 32;
+const JS_CONTEXTUAL_KEYWORDS = new Set(["of", "yield", "await"]);
+const endsLine = (s) => { JS_LINE_END.lastIndex = 0; return JS_LINE_END.test(s); };
+
 /** JavaScript with its comments blanked. Strings, templates and regular expression literals
  *  are kept as they are, so a comment marker inside one is not taken for a comment. With
  *  `literals`, what lies inside each of them is blanked too, so that text a literal only
- *  contains is not taken for code. */
-function blankJavaScriptComments(text, literals = false) {
+ *  contains is not taken for code. Where readings differ, a character is blanked only where
+ *  every reading blanks it, so that no misreading hides code. */
+function blankJavaScriptComments(text, literals = false, goal = "either") {
+  const readings = [];
+  const pending = [[]];
+  while (pending.length) {
+    if (readings.length === JS_READINGS) return text;
+    const prefix = pending.pop();
+    const { out, choices } = readJavaScript(text, literals, prefix, goal);
+    readings.push(out);
+    for (let j = choices.length - 1; j >= prefix.length; j -= 1) pending.push([...choices.slice(0, j), !choices[j]]);
+  }
+  if (readings.length === 1) return readings[0];
+  const merged = [];
+  for (let k = 0; k < text.length; k += 1) merged.push(readings.some((r) => r[k] !== " ") ? text[k] : " ");
+  return merged.join("");
+}
+
+/** One reading of a JavaScript program: the text with its comments (and, with `literals`, the
+ *  inside of its literals) blanked, and the choice made at each uncertain point, the first
+ *  ones as `prefix` gives them and the rest by default. */
+function readJavaScript(text, literals, prefix, goal) {
   const out = [];
+  const choices = [];
+  const decide = (byDefault) => {
+    const choice = choices.length < prefix.length ? prefix[choices.length] : byDefault;
+    choices.push(choice);
+    return choice;
+  };
   const n = text.length;
   let expectValue = true; // whether a `/` here would begin a regular expression
+  let unsure = false; // whether that is a guess, which another reading makes the other way
   let lastWord = null; // the word just before, when nothing but space or comments followed it
+  let lastWasName = false; // whether that word followed a member `.` or a `#`, so is a name
   let afterDot = false; // whether a member `.` or a `#` came just before, so that a word is a name
   let afterNumber = false; // whether the last word was a number, whose `.` is a decimal point
-  const parens = []; // for each open `(`, whether it opens a condition (JS_KEYWORDS_BEFORE_CONDITION)
+  let lineStart = true; // whether only space and comments came since the line began
+  let lastToken = null; // the last token, as braceKind reads it: null at the start
+  const parens = []; // for each open `(`: "cond" after if, while, for or with; "block" after catch or switch
+  const braces = []; // for each open `{`: "block", "object" or "unsure", as braceKind decides
+
+  // What a `{` opens, which decides what a `/` after its `}` begins.
+  const braceKind = () => {
+    if (!expectValue) {
+      if (lastToken === ")block" || (!lastWasName && (lastWord === "try" || lastWord === "finally"))) return "block";
+      return "unsure"; // a function's or a class's body
+    }
+    if (lastToken === null || [";", "{", "}", ")cond", "=>", "else", "do"].includes(lastToken)) return "block";
+    if (lastToken === ":") return "unsure";
+    return "object";
+  };
 
   const lineComment = (i) => { JS_LINE_END.lastIndex = i; const m = JS_LINE_END.exec(text); return m ? m.index : n; };
   const blockComment = (i) => { const end = text.indexOf("*/", i + 2); return end === -1 ? n : end + 2; };
@@ -60,7 +111,7 @@ function blankJavaScriptComments(text, literals = false) {
     const q = text[i];
     for (i += 1; i < n; i += 1) {
       if (text[i] === "\\") i += text.startsWith("\r\n", i + 1) ? 2 : 1; // a line continuation, CRLF included
-      else if (text[i] === q || text[i] === "\n") return i + 1;
+      else if (text[i] === q || text[i] === "\n" || text[i] === "\r") return i + 1;
     }
     return n;
   };
@@ -71,11 +122,21 @@ function blankJavaScriptComments(text, literals = false) {
       if (c === "\\") i += 1;
       else if (c === "[") inClass = true;
       else if (c === "]") inClass = false;
-      else if (c === "\n") return i;
+      else if (endsLine(c)) return i;
       else if (c === "/" && !inClass) { i += 1; break; }
     }
     while (i < n && /[a-z]/i.test(text[i])) i += 1;
     return i;
+  };
+  const after = (literal) => {
+    expectValue = false;
+    unsure = false;
+    lastWord = null;
+    lastToken = "value";
+    afterDot = false;
+    afterNumber = false;
+    lineStart = false;
+    return literal;
   };
 
   // Copies code from i to the `}` that closes a template substitution (when nested) or the end.
@@ -85,14 +146,35 @@ function blankJavaScriptComments(text, literals = false) {
       const c = text[i];
       const d = text[i + 1];
       let end;
-      if (c === "/" && d === "/") { end = lineComment(i); out.push(blank(text.slice(i, end))); i = end; continue; }
-      if (c === "/" && d === "*") { end = blockComment(i); out.push(blank(text.slice(i, end))); i = end; continue; }
-      if (c === "#" && d === "!" && i === 0) { end = lineComment(i); out.push(blank(text.slice(i, end))); i = end; continue; }
-      let literal;
-      if (c === "'" || c === '"') { end = quoted(i); literal = literals ? hollow(text.slice(i, end), c, c) : text.slice(i, end); }
-      else if (c === "`") { i = template(i); expectValue = false; lastWord = null; afterDot = false; continue; }
-      else if (c === "/" && expectValue) { end = regex(i); literal = literals ? blank(text.slice(i, end)) : text.slice(i, end); }
-      if (end !== undefined) { out.push(literal); i = end; expectValue = false; lastWord = null; afterDot = false; continue; }
+      if ((c === "/" && d === "/") || (c === "#" && d === "!" && i === 0)
+        // In a script, `<!--` begins a line comment, and so does `-->` at a line's start.
+        || ((text.startsWith("<!--", i) || (lineStart && text.startsWith("-->", i)))
+          && (goal === "either" ? decide(true) : goal === "script"))) {
+        end = lineComment(i);
+        out.push(blank(text.slice(i, end)));
+        i = end;
+        continue;
+      }
+      if (c === "/" && d === "*") {
+        end = blockComment(i);
+        out.push(blank(text.slice(i, end)));
+        if (endsLine(text.slice(i, end))) lineStart = true;
+        i = end;
+        continue;
+      }
+      if (c === "'" || c === '"') {
+        end = quoted(i);
+        out.push(after(literals ? hollow(text.slice(i, end), c, c) : text.slice(i, end)));
+        i = end;
+        continue;
+      }
+      if (c === "`") { i = template(i); after(); continue; }
+      if (c === "/" && (unsure ? decide(expectValue) : expectValue)) {
+        end = regex(i);
+        out.push(after(literals ? blank(text.slice(i, end)) : text.slice(i, end)));
+        i = end;
+        continue;
+      }
 
       JS_WORD.lastIndex = i;
       const word = JS_WORD.exec(text);
@@ -101,29 +183,55 @@ function blankJavaScriptComments(text, literals = false) {
         i += word[0].length;
         // `x.default / 2` and `this.#default / 2` divide: there a keyword is only a name.
         expectValue = !afterDot && JS_KEYWORDS_BEFORE_EXPRESSION.has(word[0]);
+        // In a module `await` and `yield` are always keywords; `of` is one only in a for-of.
+        unsure = expectValue && JS_CONTEXTUAL_KEYWORDS.has(word[0]) && (goal !== "module" || word[0] === "of");
         lastWord = word[0];
+        lastWasName = afterDot;
+        lastToken = !afterDot && (word[0] === "else" || word[0] === "do") ? word[0] : "value";
         afterDot = false;
         afterNumber = /^[0-9]/.test(word[0]);
+        lineStart = false;
         continue;
       }
-      if (c === "(") parens.push(JS_KEYWORDS_BEFORE_CONDITION.has(lastWord));
-      if (c === "{") depth += 1;
+      // `a++ / 2` divides: a `++` or `--` after a value leaves a value.
+      if ((c === "+" || c === "-") && d === c && !expectValue) {
+        out.push(c, d);
+        i += 2;
+        after();
+        continue;
+      }
+      if (c === "(") {
+        const keyword = !lastWasName && lastWord;
+        parens.push(JS_KEYWORDS_BEFORE_CONDITION.has(keyword) ? "cond" : keyword === "catch" || keyword === "switch" ? "block" : "call");
+      }
+      let closed = null;
+      if (c === "{") { depth += 1; braces.push(braceKind()); }
       if (c === "}") {
         if (nested && depth === 0) { out.push(c); return i + 1; }
         depth -= 1;
+        closed = braces.pop() ?? "unsure";
       }
       out.push(c);
       i += 1;
+      if (endsLine(c)) { lineStart = true; continue; }
       if (/\s/.test(c)) continue;
+      lineStart = false;
       lastWord = null;
       // Not a `.` of a spread (`...typeof /re/`) or a number's decimal point (`1. in /re/`).
       afterDot = c === "#" || (c === "." && text[i - 2] !== "." && text[i] !== "." && !afterNumber);
       afterNumber = false;
-      // After a value (`x)`, `a]`) a `/` divides. After a condition's `)` or a block's `}` a
-      // statement starts, where it begins a regular expression; an object literal followed
-      // by a division is the rare case this gets wrong.
-      if (c === ")") expectValue = parens.pop() === true;
-      else expectValue = c !== "]";
+      // After a value (`x)`, `a]`, an object literal's `}`) a `/` divides; after a condition's
+      // `)` or a block's `}` a statement starts, where it begins a regular expression.
+      unsure = closed === "unsure";
+      lastToken = c === ">" && text[i - 2] === "=" ? "=>" : c;
+      if (c === ")") {
+        const kind = parens.pop();
+        expectValue = kind === "cond";
+        lastToken = kind === "cond" ? ")cond" : kind === "block" ? ")block" : ")";
+      } else if (closed) {
+        expectValue = closed !== "object";
+        if (closed === "object") lastToken = "value";
+      } else expectValue = c !== "]";
     }
     return i;
   };
@@ -138,6 +246,7 @@ function blankJavaScriptComments(text, literals = false) {
       if (c === "$" && text[i + 1] === "{") {
         out.push("${");
         expectValue = true;
+        unsure = false;
         i = code(i + 2, true) - 1;
         continue;
       }
@@ -147,7 +256,7 @@ function blankJavaScriptComments(text, literals = false) {
   };
 
   code(0, false);
-  return out.join("");
+  return { out: out.join(""), choices };
 }
 
 // Python's lexical structure, as much of it as finding comments and imports needs: every line
@@ -491,14 +600,22 @@ function pythonImports(text, tokens, lineAt) {
   const is = (k, type, s) => all[k]?.type === type && (s === undefined || all[k].text.normalize("NFKC") === s);
   for (let k = 0; k < all.length; k += 1) {
     if (!is(k, "name", "import_module") || !is(k + 1, "op", "(")) continue;
-    let j = k + 2;
-    if (is(j, "name", "name") && is(j + 1, "op", "=")) j += 2;
-    let open = 0;
-    while (is(j, "op", "(")) { open += 1; j += 1; }
-    const parts = [];
-    while (is(j, "string")) { parts.push(all[j]); j += 1; }
-    while (open && is(j, "op", ")")) { open -= 1; j += 1; }
-    if (!parts.length || open || !(is(j, "op", ",") || is(j, "op", ")"))) continue;
+    // The call's arguments, split at its own commas; the module is the first positional one,
+    // or the one named `name`, wherever it stands.
+    const args = [[]];
+    for (let j = k + 2, depth = 0; j < all.length; j += 1) {
+      const x = all[j];
+      if (x.type === "op" && "([{".includes(x.text)) depth += 1;
+      else if (x.type === "op" && ")]}".includes(x.text) && !depth--) break;
+      else if (!depth && x.type === "op" && x.text === ",") { args.push([]); continue; }
+      args.at(-1).push(x);
+    }
+    const keyword = (a) => a[0]?.type === "name" && a[1]?.type === "op" && a[1].text === "=";
+    const named = args.find((a) => keyword(a) && a[0].text.normalize("NFKC") === "name");
+    let arg = named ? named.slice(2) : keyword(args[0]) ? [] : args[0];
+    while (arg.length > 2 && arg[0].text === "(" && arg.at(-1).text === ")") arg = arg.slice(1, -1);
+    const parts = arg;
+    if (!parts.length || parts.some((p) => p.type !== "string")) continue;
     const value = pythonValue(text, parts);
     if (value === undefined) continue;
     const at = parts[0].start;
@@ -522,15 +639,18 @@ const inOrder = (found) => found.sort((a, b) => a.at - b.at).map(({ at: _at, ...
  *  esm, line}: the string as written, its value, and whether it is an ES module import. A
  *  Python one is {specifier, names, line}: the module path without its spaces and the names a
  *  `from` imports from it, with `undecodable` when its literal cannot be read. `coding` is a
- *  Python program's PEP 263 declaration, {name, line}, or null. */
-export function findReach(source, language) {
+ *  Python program's PEP 263 declaration, {name, line}, or null. `path`, when given, says
+ *  whether a JavaScript program is a script (.cjs) or a module (.mjs). */
+export function findReach(source, language, path = "") {
   // A byte order mark is not code: Python skips it, and JavaScript reads it as space.
   const text = source.charCodeAt(0) === 0xfeff ? ` ${source.slice(1)}` : source;
   const python = language === "python";
   const tokens = python ? pythonTokens(text) : null;
-  const code = python ? blankPythonComments(text, tokens) : blankJavaScriptComments(text);
+  // Node reads a .cjs file as a script and a .mjs file as a module; a .js or .ts file may be either.
+  const goal = /\.cjs$/i.test(path) ? "script" : /\.mjs$/i.test(path) ? "module" : "either";
+  const code = python ? blankPythonComments(text, tokens) : blankJavaScriptComments(text, false, goal);
   const lineAt = lineFinder(code);
-  const imports = python ? pythonImports(text, tokens, lineAt) : jsImports(code, blankJavaScriptComments(text, true), lineAt);
+  const imports = python ? pythonImports(text, tokens, lineAt) : jsImports(code, blankJavaScriptComments(text, true, goal), lineAt);
   return {
     urls: inOrder(urlsIn(code, lineAt)),
     env: inOrder(envIn(code, language, lineAt)),

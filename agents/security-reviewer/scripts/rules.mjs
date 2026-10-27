@@ -45,7 +45,7 @@ function programs(pkg) {
     const found = [];
     for (const f of pkg.files) {
       const language = languageOf(f.path);
-      if (language) found.push({ path: f.path, reach: findReach(f.bytes.toString("utf8"), language) });
+      if (language) found.push({ path: f.path, reach: findReach(f.bytes.toString("utf8"), language, f.path) });
     }
     programsRead.set(pkg, found);
   }
@@ -328,15 +328,30 @@ function pythonUnread({ specifier, names, undecodable }) {
   return name === undefined ? null : `${specifier}${specifier.endsWith(".") ? "" : "."}${name}`;
 }
 
-// The PEP 263 names of UTF-8, and of ASCII, which UTF-8 reads the same, as Python spells them.
-const READ_CODINGS = /^(?:utf-?8|u8|utf|cp65001|ascii|us-ascii|646)$/;
+// The codec names Python reads as UTF-8, or as ASCII, which UTF-8 reads the same: its
+// encodings.aliases for utf_8, utf_8_sig and ascii, and those codecs' own names.
+const READ_CODECS = new Set([
+  "utf_8", "utf_8_sig", "cp65001", "u8", "utf", "utf8", "utf8_ucs2", "utf8_ucs4",
+  "ascii", "646", "ansi_x3.4_1968", "ansi_x3.4_1986", "ansi_x3_4_1968", "cp367", "csascii", "ibm367",
+  "iso646_us", "iso_646.irv_1991", "iso_ir_6", "us", "us_ascii",
+]);
+
+/** Whether Python reads a source declared in this encoding as UTF-8 or ASCII. Its tokenizer
+ *  takes any name whose first 12 characters read `utf-8` or `utf-8-…` as UTF-8; any other
+ *  name goes to its codec lookup, which collapses everything but letters, digits and `.`. */
+function readCoding(name) {
+  const short = name.slice(0, 12).toLowerCase().replace(/_/g, "-");
+  if (short === "utf-8" || short.startsWith("utf-8-")) return true;
+  const codec = name.toLowerCase().replace(/[^a-z0-9.]+/g, "_").replace(/^_+|_+$/g, "");
+  return READ_CODECS.has(codec) || READ_CODECS.has(codec.replace(/\./g, "_"));
+}
 
 function unreadCode(pkg) {
   const out = [];
   for (const p of programs(pkg)) {
     const python = languageOf(p.path) === "python";
     const coding = p.reach.coding;
-    if (coding && !READ_CODINGS.test(coding.name.toLowerCase().replace(/_/g, "-"))) {
+    if (coding && !readCoding(coding.name)) {
       // The review reads every program as UTF-8, so one decoded otherwise is not read.
       out.push(refuse("unread-code", `the program declares the source encoding ${coding.name}, which this review does not read`,
         { system: `coding: ${coding.name}`, file: p.path, line: coding.line }));
