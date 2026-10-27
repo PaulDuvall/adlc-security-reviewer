@@ -26,7 +26,7 @@ decisions the spec leaves open.
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 33 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
-| 🟡 | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Round 8: 67.4% of 3,304. Before this reopen, on round 11's code and 87 tests: `reach.mjs` 70.0% of 2,047, the other five programs still being measured. After the reopen, on round 13's code and 180 tests: being measured |
+| 🟡 | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Round 8: 67.4% of 3,304. Before this reopen, on round 11's code and 87 tests: 70.8% of 3,464. After the reopen, on round 13's code and 180 tests: being measured |
 | 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [16 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21 |
 
 ## What it does for users
