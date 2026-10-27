@@ -788,6 +788,46 @@ test("SR-22 refuses a Python import of a test module however it is written", () 
   }
 });
 
+test("SR-22 reads a Python program as Python reads it: its encoding, its strings and its line endings", () => {
+  const bom = String.fromCharCode(0xfeff);
+  const dot = String.fromCharCode(0xb7);
+  const programs = [
+    [`${bom}import tests.helpers\n`, "tests.helpers", 1],
+    ["s = f\"{'\"'}\"; import tests.helpers\n", "tests.helpers", 1],
+    ['x = f"""{1 # """\n}"""\nimport tests.helpers\n', "tests.helpers", 3],
+    ['s = "abc\\\r\nxyz"; import tests.helpers\r\n', "tests.helpers", 2],
+    ["import \\\rtests.helpers\n", "tests.helpers", 1],
+    [`from tests.a${dot}b import x\n`, `tests.a${dot}b`, 1],
+    ['import importlib\nimportlib.import_module(name="tests.helpers")\n', "tests.helpers", 2],
+    ["import importlib\nimportlib.import_module('''tests.helpers''')\n", "tests.helpers", 2],
+    ['import importlib\nimportlib.import_module(("te" "sts.helpers"))\n', "tests.helpers", 2],
+    ['import importlib\nimportlib.import_module("\\N{LATIN SMALL LETTER T}ests")\n', '"\\N{LATIN SMALL LETTER T}ests"', 2],
+    ["# -*- coding: utf-7 -*-\n+AGk-mport tests.helpers\n", "coding: utf-7", 1],
+  ];
+  for (const [text, system, line] of programs) {
+    const p = basePackage();
+    p["skills/read-tickets/scripts/load.py"] = text;
+    const { answer } = review(p);
+    const r = (answer?.refusals ?? []).find((x) => x.rule === "unread-code" && x.system === system);
+    assert.ok(r, `refuses ${JSON.stringify(text)} as ${system}: ${JSON.stringify(answer?.refusals ?? answer?.result)}`);
+    assert.equal(r.file, "skills/read-tickets/scripts/load.py");
+    assert.equal(r.line, line, JSON.stringify(text));
+  }
+});
+
+test("SR-22 does not count import text inside a Python f-string or a continued string", () => {
+  const p = basePackage();
+  p["skills/read-tickets/scripts/text.py"] = [
+    's = f"{"; import tests.helpers; "}"',
+    't = f"{1 +',
+    '2}; import tests.helpers"',
+    "u = \"abc\\\r\n; import tests.helpers\"",
+    "",
+  ].join("\n");
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+});
+
 test("SR-22 does not count import text that a literal or a comment only contains", () => {
   const p = withProgram([
     "const help = \"usage: require('./test/x.js')\";",

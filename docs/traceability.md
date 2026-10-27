@@ -28,14 +28,8 @@ suite must pass every test named here, by name, and no other.
 | SR-19 | SR-19 binds every answer about a readable package to its digest<br>SR-19 changes the digest with one shipped byte, and not with a test file<br>SR-19 packageDigest follows its definition<br>SR-19 ships excludes test folders, node_modules, .git and test files | read-package.mjs |  |  |
 | SR-20 | SR-20 gives a byte-identical answer to the same request<br>SR-20 gives the same answer from another directory, with a relative package path | all |  |  |
 | SR-21 | SR-21 runs with read-only files, no processes and no network<br>SR-21 passes its own package with zero declared systems | all |  | CI runs the suite and the conformance cases under `--permission` |
-| SR-22 | SR-22 refuses a program that imports a file the review does not read<br>SR-22 passes a program that imports only shipped files<br>SR-22 refuses an unread file however the specifier is written<br>SR-22 refuses a specifier that resolves to no shipped file the way Node resolves it<br>SR-22 refuses a Python import of a test module however it is written<br>SR-22 does not count import text that a literal or a comment only contains<br>SR-22 passes a specifier that resolves to a shipped file, a dependency or a built-in<br>SR-22 findReach finds every import, re-export and require, and none a literal only contains | reach.mjs, rules.mjs |  |  |
+| SR-22 | SR-22 refuses a program that imports a file the review does not read<br>SR-22 passes a program that imports only shipped files<br>SR-22 refuses an unread file however the specifier is written<br>SR-22 refuses a specifier that resolves to no shipped file the way Node resolves it<br>SR-22 refuses a Python import of a test module however it is written<br>SR-22 reads a Python program as Python reads it: its encoding, its strings and its line endings<br>SR-22 does not count import text inside a Python f-string or a continued string<br>SR-22 does not count import text that a literal or a comment only contains<br>SR-22 passes a specifier that resolves to a shipped file, a dependency or a built-in<br>SR-22 findReach finds every import, re-export and require, and none a literal only contains | reach.mjs, rules.mjs |  |  |
 | SR-23 | SR-23 refuses an mcp.json server the descriptor does not declare<br>SR-23 refuses an mcp.json that cannot be read<br>SR-23 refuses an undeclared server in .mcp.json or plugin.json | rules.mjs |  |  |
-
-Unit tests with no requirement prefix pin exported functions used by several requirements:
-
-ships excludes test folders, node_modules, .git and test files  
-languageOf names JavaScript and Python programs, and nothing else  
-isCredentialName reads the parts of a name
 
 ## Stage checks
 

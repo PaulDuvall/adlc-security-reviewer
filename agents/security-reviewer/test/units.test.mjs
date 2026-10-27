@@ -122,6 +122,11 @@ test("SR-08 findReach ends comments where each language ends them, and keeps str
     ['const u = "https://redis_cache:6379/";', [{ host: "redis_cache", line: 1 }]],
     ['export default /[/*]/;\nfetch("https://h8.example");\n// */', [{ host: "h8.example", line: 2 }]],
     ["const q = x.default / 2; // https://c4.example", []],
+    ['const a = [...typeof /[/*]/];\nfetch("https://h9.example");\n// */', [{ host: "h9.example", line: 2 }]],
+    ['const b = 1. in /[/*]/;\nfetch("https://h10.example");\n// */', [{ host: "h10.example", line: 2 }]],
+    ['class A { #return = 4; h() { return this.#return / 2 + "//*"; } }\nfetch("https://h11.example");\n// */', [{ host: "h11.example", line: 2 }]],
+    [`const a${String.fromCharCode(0x200c)}default = 4; const h = a${String.fromCharCode(0x200c)}default / 2 + "//*";\nfetch("https://h12.example");\n// */`, [{ host: "h12.example", line: 2 }]],
+    ['const s = "a\\\r\nb"; fetch("https://h13.example");', [{ host: "h13.example", line: 2 }]],
   ];
   for (const [text, urls] of js) assert.deepEqual(findReach(text, "javascript").urls, urls, text);
   const py = [
@@ -175,6 +180,10 @@ test("SR-17 findReach finds process starts", () => {
   assert.equal(findReach("if True: import subprocess\n", "python").spawns.length, 1);
   assert.equal(findReach("x = 1; import subprocess\n", "python").spawns.length, 1);
   assert.equal(findReach('import os; s = "subprocess"\n', "python").spawns.length, 0);
+  assert.equal(findReach('const cp = require("child\\x5fprocess");\n', "javascript").spawns.length, 1);
+  assert.equal(findReach('const s = "require(\'child_process\')";\n', "javascript").spawns.length, 0);
+  assert.equal(findReach(`${String.fromCharCode(0xfeff)}import subprocess\n`, "python").spawns.length, 1);
+  assert.equal(findReach('s = "import subprocess"\n', "python").spawns.length, 0);
   assert.equal(findReach("export const x = 1;\n", "javascript").spawns.length, 0);
   assert.deepEqual(hosts(findReach("export const x = 1;\n", "javascript")), []);
 });
