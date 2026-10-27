@@ -268,10 +268,33 @@ function spawnsIn(code, language, lineAt) {
   return spawns;
 }
 
+// Relative specifiers only (SR-22): `import … from`, `export … from`, a bare `import "…"`,
+// and `import(…)` or `require(…)` with a plain string. The specifier is group 2.
+const JS_IMPORTS = [
+  /\b(?:import|export)\b[^;'"`]*?\bfrom\s*(["'])(\.\.?\/[^"'\n]*)\1/g,
+  /\bimport\s*(["'])(\.\.?\/[^"'\n]*)\1/g,
+  /\b(?:import|require)\s*\(\s*(["'`])(\.\.?\/[^"'`$\n]*)\1\s*\)/g,
+];
+// `from .x.y import …`, starting a line or after `:` or `;` as PY_SPAWNS does. Group 1.
+const PY_IMPORTS = [/(?:^|[;:])[ \t]*from[ \t]+(\.+[\w.]*)[ \t]+import\b/gm];
+
+function importsIn(code, language, lineAt) {
+  const python = language === "python";
+  const imports = [];
+  for (const pattern of python ? PY_IMPORTS : JS_IMPORTS) {
+    for (const m of code.matchAll(pattern)) {
+      const specifier = python ? m[1] : m[2];
+      const at = m.index + m[0].indexOf(specifier);
+      imports.push({ specifier, line: lineAt(at), at });
+    }
+  }
+  return imports;
+}
+
 const inOrder = (found) => found.sort((a, b) => a.at - b.at).map(({ at: _at, ...rest }) => rest);
 
-/** What a program reaches: { urls: [{host, line}], env: [{name, line}], spawns: [{what, line}] },
- *  each in the order it appears. */
+/** What a program reaches: { urls: [{host, line}], env: [{name, line}], spawns: [{what, line}],
+ *  imports: [{specifier, line}] }, each in the order it appears. */
 export function findReach(text, language) {
   const code = language === "python" ? blankPythonComments(text) : blankJavaScriptComments(text);
   const lineAt = lineFinder(code);
@@ -279,5 +302,6 @@ export function findReach(text, language) {
     urls: inOrder(urlsIn(code, lineAt)),
     env: inOrder(envIn(code, language, lineAt)),
     spawns: inOrder(spawnsIn(code, language, lineAt)),
+    imports: inOrder(importsIn(code, language, lineAt)),
   };
 }

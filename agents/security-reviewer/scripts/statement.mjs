@@ -8,19 +8,22 @@ const named = (systems) => list(systems).filter((s) => typeof s.name === "string
 /** The package as every answer about a readable one names it. */
 export const packageOf = (pkg) => ({ name: pkg.name, version: pkg.version, digest: pkg.digest });
 
-/** One entry per declared system, in the descriptor's order. */
+/** One entry per declared system, in the descriptor's order. `leaves` appears only where the
+ *  descriptor or the runtime requirements state it: absent means not stated (SR-16). */
 function reachesOf(pkg) {
   const required = named(pkg.requirements.systems);
   return named(pkg.descriptor.systems).map((s) => {
     const r = required.find((x) => x.name === s.name) ?? {};
-    return {
+    const entry = {
       system: s.name,
       access: s.access ?? null,
       why: s.needs,
       kind: r.kind ?? null,
       credential: r.credential ?? null,
-      leaves: s.leaves === true || r.leaves === true,
     };
+    const stated = [s.leaves, r.leaves].filter((v) => typeof v === "boolean");
+    if (stated.length) entry.leaves = stated.includes(true);
+    return entry;
   });
 }
 

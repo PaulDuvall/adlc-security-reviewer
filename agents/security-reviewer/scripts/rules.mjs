@@ -1,6 +1,9 @@
 // Check the declaration and the owner's limits against what the package holds (SR-06 to
-// SR-14), and say what was accepted knowingly (SR-17) and what was not checked (SR-18).
+// SR-14, SR-22, SR-23), and say what was accepted knowingly (SR-17) and what was not
+// checked (SR-18).
+import { posix } from "node:path";
 import { findReach, isCredentialName, languageOf } from "./reach.mjs";
+import { ships } from "./read-package.mjs";
 import { secretsIn } from "./secrets.mjs";
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -121,11 +124,17 @@ const ENFORCERS = new Set(["runtime", "platform"]);
 function ceilingMissing(pkg) {
   const capped = new Set(ceilings(pkg).map((c) => c.system));
   const spending = requiredSystems(pkg).filter((s) => Object.hasOwn(s, "spends"));
+  // The scripts reach a credential-bearing system themselves, so the platform never sees
+  // what they spend there (Common Agent Specification §12.4 item 4).
+  const credentialed = new Set(requiredSystems(pkg).filter((s) => !blank(s.credential)).map((s) => s.name));
   return [
     ...spending.filter((s) => !capped.has(s.name)).map((s) => refuse("ceiling-missing",
       `${s.name} spends, and the runtime requirements set no ceiling on it`, { system: s.name })),
     ...ceilings(pkg).filter((c) => !ENFORCERS.has(c.enforced_by)).map((c) => refuse("ceiling-missing",
       `the ceiling on ${c.system} per ${c.per} does not say whether the runtime or the platform enforces it`, { system: c.system })),
+    ...ceilings(pkg).filter((c) => c.enforced_by === "platform" && credentialed.has(c.system)).map((c) => refuse("ceiling-missing",
+      `the ceiling on ${c.system} per ${c.per} says the platform enforces it, but the scripts reach ${c.system} with a credential, so only the runtime can count it`,
+      { system: c.system })),
   ];
 }
 
@@ -175,6 +184,37 @@ function dependencyUnpinned(pkg) {
   return out;
 }
 
+const UNREAD_MODULES = new Set(["test", "tests"]);
+
+/** Whether a program loads code this review does not read: a JavaScript relative specifier
+ *  that leaves the package or names a file that does not ship, or a Python relative import
+ *  from a test module. */
+function loadsUnread(path, language, specifier) {
+  if (language === "python") return specifier.replace(/^\.+/, "").split(".").some((part) => UNREAD_MODULES.has(part));
+  const resolved = posix.normalize(posix.join(posix.dirname(path), specifier));
+  return resolved === ".." || resolved.startsWith("../") || !ships(resolved);
+}
+
+function unreadCode(pkg) {
+  return programs(pkg).flatMap((p) => p.reach.imports
+    .filter((i) => loadsUnread(p.path, languageOf(p.path), i.specifier))
+    .map((i) => refuse("unread-code", `the program loads ${i.specifier}, which this review does not read`,
+      { system: i.specifier, file: p.path, line: i.line })));
+}
+
+function mcpServers(pkg) {
+  const file = pkg.files.find((f) => f.path === "mcp.json");
+  if (!file) return [];
+  let config;
+  try { config = JSON.parse(file.bytes.toString("utf8")); } catch { config = undefined; }
+  if (!isObject(config) || (config.mcpServers !== undefined && !isObject(config.mcpServers))) {
+    return [refuse("unreadable", "mcp.json is not a JSON object whose mcpServers is an object", { file: "mcp.json" })];
+  }
+  const declared = new Set(descriptorSystems(pkg).map((s) => s.name));
+  return Object.keys(config.mcpServers ?? {}).filter((name) => !declared.has(name)).map((name) => refuse("undeclared-reach",
+    `mcp.json names the server ${name}, which the descriptor does not declare`, { system: name, file: "mcp.json" }));
+}
+
 /** Every refusal that applies to a readable package, for the owner given. Empty when none. */
 export function findRefusals(pkg, owner) {
   return [
@@ -186,6 +226,8 @@ export function findRefusals(pkg, owner) {
     ...ceilingUnset(pkg, owner),
     ...credentialInFiles(pkg),
     ...dependencyUnpinned(pkg),
+    ...unreadCode(pkg),
+    ...mcpServers(pkg),
   ];
 }
 
@@ -239,6 +281,7 @@ const ALWAYS_NOT_CHECKED = [
   "whether each reason is sufficient; a person decides that",
   "behavior when running; the programs were read, not run",
   "files under test, tests, node_modules and .git directories, and files named *.test.*, which were not read",
+  "offering authority, external inputs and workspaces, which were not read",
 ];
 const OTHER_LANGUAGES = new Set([".sh", ".rb", ".go", ".rs", ".java", ".php"]);
 const extensionOf = (path) => {
