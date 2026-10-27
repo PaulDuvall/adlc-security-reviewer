@@ -4,7 +4,7 @@ A reference implementation of the ADLC **security reviewer** role
 ([agentroles.ai/security-reviewer](https://agentroles.ai/security-reviewer.html), ROLES.md §34),
 the Security review stage at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages.html#security).
 
-Status: Code stage done in four rounds ([docs/rounds.md](docs/rounds.md)). `npm run verify` exits 0.
+Status: spec 0.2.0; Code stage in eight rounds ([docs/rounds.md](docs/rounds.md)). The suite, the conformance cases and the removal check pass. `npm run verify` exits 0 once the spec owner re-locks: `LOCK.json` and the `handoff` tag.
 
 ## What it does for users
 
