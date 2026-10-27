@@ -184,6 +184,7 @@ test("SR-17 findReach finds process starts", () => {
   assert.equal(findReach('const s = "require(\'child_process\')";\n', "javascript").spawns.length, 0);
   assert.equal(findReach(`${String.fromCharCode(0xfeff)}import subprocess\n`, "python").spawns.length, 1);
   assert.equal(findReach('s = "import subprocess"\n', "python").spawns.length, 0);
+  assert.equal(findReach("import os\nos.system\n('ls')\n", "python").spawns.length, 0, "a line's end is no call");
   assert.equal(findReach("export const x = 1;\n", "javascript").spawns.length, 0);
   assert.deepEqual(hosts(findReach("export const x = 1;\n", "javascript")), []);
 });
@@ -244,6 +245,26 @@ test("SR-22 findReach reads every way a `/` or an HTML-like comment may be read,
   }
   assert.deepEqual(findReach("var m = 1; <!-- require(\"./g.js\")\n", "javascript", "x.cjs").imports, [], "in a script, <!-- begins a comment");
   assert.deepEqual(findReach("if (x) { }\n/'/.test(y); // https://c5.example\n", "javascript").urls, [], "a block's } leaves no doubt");
+  const escaped = `\\u0061`; // the identifier a, written as an escape
+  const found = findReach(`var ${escaped} = 1; var x = ${escaped} / 1, y = require("./h.js");\n`, "javascript", "x.cjs").imports;
+  assert.deepEqual(found.map((i) => i.specifier), ["./h.js"], "an escaped identifier is a value");
+});
+
+test("SR-08 findReach reads every reading on its own, and reads JavaScript as Node does", () => {
+  const none = [
+    ['function f() {}\n/"/ + from /*"./x.js" */\n', "x.js", "no mix of two readings makes up an import"],
+    [`x = a${" <!--b".repeat(32)}\n// see https://c6.example/docs\n`, "x.js", "a script or a module, once for the program"],
+    ["class C {}\n/'/\n--> fetch(\"https://c7.example\")\n", "x.cjs", "a line starts after a string a reading leaves open"],
+    ['const s = "";\ndo `${ {} /[//]/.test(s) ? 0 : "https://c8.example"\n] }`; while (0)\n', "x.mjs", "a substitution holds an expression"],
+    [`${String.fromCharCode(0xfeff)}#!/usr/bin/env -S node --title="https://c9.example"\nexport const x = 1;\n`, "x.mjs", "a hashbang after a byte order mark"],
+    ['const s = "";\nconst x = 1..in /[//]/.test(s) ? 0 : "https://c10.example"\n];\n', "x.mjs", "a number's own dot, then a member's"],
+    ['const s = "";\nconst x = .5.in /[//]/.test(s) ? 0 : "https://c11.example"\n];\n', "x.mjs", "a number that starts with its dot"],
+    ['x = a <!-- /*\ny = b <!-- fetch("https://c12.example") */\n', "x.js", "the same reading at every <!--"],
+  ];
+  for (const [text, path, why] of none) {
+    const r = findReach(text, "javascript", path);
+    assert.deepEqual([...r.urls, ...r.imports], [], `${why}: ${JSON.stringify(text)}`);
+  }
 });
 
 // secrets.mjs
