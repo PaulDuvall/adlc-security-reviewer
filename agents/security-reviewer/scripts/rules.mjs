@@ -301,7 +301,9 @@ function hostOfUrl(value) {
 
 /** Whether a JavaScript import loads code this review does not read. `urls` are the URLs
  *  SR-08 found in the same program. */
-function jsLoadsUnread(pkg, program, { value, esm, line }, urls) {
+function jsLoadsUnread(pkg, program, { value, esm, line, undecodable }, urls) {
+  // A specifier this review cannot decode might name any module (SR-22).
+  if (undecodable) return true;
   if (RELATIVE.test(value)) {
     const target = relativeTarget(pkg, program, value, esm);
     return target !== null && !loadsShipped(pkg, target.path, target.folderOnly);

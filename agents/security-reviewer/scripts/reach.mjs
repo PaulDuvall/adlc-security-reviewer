@@ -426,11 +426,13 @@ function urlsIn(code, lineAt) {
 // A name is read as it decodes, so an escape in an identifier or a string does not hide it.
 const JS_NAME = String.raw`(?:[\p{ID_Start}_$]|${JS_ESCAPED_CHAR})(?:[\p{ID_Continue}$]|${JS_ESCAPED_CHAR})*`;
 const JS_KEY = String.raw`"((?:[^"\\\n]|\\[\s\S])+)"|'((?:[^'\\\n]|\\[\s\S])+)'|${"`"}((?:[^${"`"}\\$]|\\[\s\S])+)${"`"}`;
+// `process.env`, or `process["env"]` in any quotes, with `?.` for any `.` (SR-09).
+const JS_ENV = String.raw`\bprocess\s*(?:(?:\?\.|\.)\s*env\b|(?:\?\.)?\s*\[\s*(?:"env"|'env'|${"`"}env${"`"})\s*\])`;
 const JS_ENV_READS = [
-  new RegExp(String.raw`\bprocess\s*(?:\?\.|\.)\s*env\s*(?:\?\.|\.)\s*(${JS_NAME})`, "gu"),
-  new RegExp(String.raw`\bprocess\s*(?:\?\.|\.)\s*env\s*(?:\?\.)?\s*\[\s*(?:${JS_KEY})\s*\]`, "gu"),
+  new RegExp(String.raw`${JS_ENV}\s*(?:\?\.|\.)\s*(${JS_NAME})`, "gu"),
+  new RegExp(String.raw`${JS_ENV}\s*(?:\?\.)?\s*\[\s*(?:${JS_KEY})\s*\]`, "gu"),
 ];
-const JS_ENV_DESTRUCTURING = /\{([^{}]*)\}\s*=\s*process\s*(?:\?\.|\.)\s*env\b/g;
+const JS_ENV_DESTRUCTURING = new RegExp(String.raw`\{([^{}]*)\}\s*=\s*${JS_ENV}`, "g");
 // Python's string forms, as a read names them: an optional prefix, then one quoted string.
 const PY_KEY = String.raw`([rRuU]?)(?:"((?:[^"\\\n]|\\[\s\S])+)"|'((?:[^'\\\n]|\\[\s\S])+)')`;
 const PY_ENV_READS = [
@@ -545,7 +547,7 @@ function jsImports(code, hollowed, lineAt) {
       CALL_ENDS.lastIndex = at + found[0].length;
       if (call && !CALL_ENDS.test(hollowed)) continue;
       const value = jsValue(found[1]);
-      if (value !== null) imports.push({ specifier: found[1], value, esm, line: lineAt(at), at });
+      imports.push({ specifier: found[1], value, ...(value === null ? { undecodable: true } : {}), esm, line: lineAt(at), at });
     }
   }
   return imports;
@@ -674,7 +676,9 @@ function pythonImports(text, tokens, lineAt) {
 function pythonCoding(text) {
   const [first = "", second = ""] = text.split(/\r\n|\r|\n/, 2);
   const m = PY_CODING.exec(first) ?? (/^[ \t\f]*(?:#.*)?$/.test(first) ? PY_CODING.exec(second) : null);
-  return m ? { name: m[1], line: PY_CODING.test(first) ? 1 : 2 } : null;
+  // Python's second line follows any line ending, but a line is counted by `\n` alone.
+  const line = PY_CODING.test(first) || /^\r(?!\n)/.test(text.slice(first.length)) ? 1 : 2;
+  return m ? { name: m[1], line } : null;
 }
 
 const inOrder = (found) => found.sort((a, b) => a.at - b.at).map(({ at: _at, ...rest }) => rest);
@@ -702,7 +706,7 @@ const urlKey = (u) => `${u.line}\0${u.host}`;
  *  imports, coding }, each in the order it appears. A JavaScript import is {specifier, value,
  *  esm, line}: the string as written, its value, and whether it is an ES module import. A
  *  Python one is {specifier, names, line}: the module path without its spaces and the names a
- *  `from` imports from it, with `undecodable` when its literal cannot be read. An environment
+ *  `from` imports from it. Either has `undecodable` when its literal cannot be read. An environment
  *  read whose name cannot be read is `undecodable` too. `coding` is a Python program's PEP 263
  *  declaration, {name, line}, or null. `path`, when given, says whether a JavaScript program is
  *  a script (.cjs) or a module (.mjs). */
