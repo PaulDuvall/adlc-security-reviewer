@@ -49,3 +49,22 @@ Each choice below is the program's, not the statement's. The spec owner may sett
 | U19 | `leaves` values | `null` is not stated; any other value but `false` leaves | Partly |
 | U20 | Uncertain readings (SR-08) | A `.js` or `.ts` program is read both as a script and as a module. A program with more than 32 readings is blanked nowhere, so a URL in one of its comments counts. That fails closed, against SR-08's comment rule | Partly |
 | U21 | PEP 263 encodings | Latin-1 and every codec but UTF-8 and ASCII are refused, though ASCII text reads the same in some of them | Partly |
+
+## Decided for the next reopen
+
+The spec owner's answers of 27 October 2026 on the 30 test ideas from round 9 that the statement
+does not settle. The reopen writes each into `docs/spec.md`, then adds its tests. "Code change"
+marks the two the programs do not yet do; a Code-stage round makes them pass after the re-lock.
+
+| Theme | Decision | Ideas | Code change |
+|---|---|---|---|
+| Specifiers the reviewer cannot settle | Refuse as unread code wherever Node might load an unread file: an undecodable escape, a folder `main` under `test/`, a `#` import with no `package.json`. A specifier Node rejects outright passes, since it loads nothing | 4 | An undecodable escape is refused (it passes today) |
+| Python that CPython rejects | Read it leniently: every import and process start still found counts | 4 | No |
+| Environment reads (SR-09) | Today's rules (U10), and `process['env'].X` and `process["env"]` forms count too | 3 | `process['env']` forms are read (missed today) |
+| Literal module names (SR-22) | One literal or adjacent literals, or an f-string with no fields, is a literal name; anything evaluated is computed and named in `not_checked`; `import_module` counts under any name | 3 | No |
+| Declaration and request edge cases | Today's handling: U2, U4, U15, a blank package refused `bad-request`, a `never` array keeps its string entries, a nameless system ignored | 7 | No |
+| Lockfiles and `not_checked` | Adopt U12 into SR-14 and U16 into SR-18 | 2 | No |
+| Credentials withheld (SR-13) | A private key is withheld as its whole PEM block; overlapping matches are withheld as their union | 2 | No |
+| URL forms (SR-08) | Today's rule (U8): a URL the WHATWG parser rejects, or a host in a template field, is not reach | 1 | No |
+| Line numbers | Today's count (U9): `\n` only; a split call names its literal's line | 3 | No |
+| Wording of each `why` | Not pinned: tests check that every `why` is non-empty | 1 | No |
