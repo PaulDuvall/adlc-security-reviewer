@@ -211,11 +211,12 @@ sooner.
 2. Excluding `test/` from shipped files assumes the package maker does not ship tests. The
    built `incident-recorder/package` in CommonAgent/adlc supports this. Not confirmed, and the
    package maker's build is not run in CI. SR-22 refuses a program that imports an excluded
-   file. Owner: AgentMesh team.
+   file. Owner: needs input from the AgentMesh team, not yet raised with them.
 3. Whether reaching `localhost` should be treated like any other host. Treated the same here.
    Owner: spec owner.
 4. Whether the published conformance check for ROLES.md §34.4, when one exists, agrees with the
-   local harness in `conformance/`. None was published as of 2026-10-26. Owner: AgentMesh team.
+   local harness in `conformance/`. None was published as of 2026-10-26. Owner: needs input
+   from the AgentMesh team, not yet raised with them.
 5. SR-08 counts a URL used only as an identifier, such as a JSON Schema address, as reach. A
    trial run over CommonAgent/adlc at `fa174cf` refused `spec-writer` for its `SCHEMA_URL`.
    Whether identifiers should be exempt, and how to tell them apart without judgment, is open.
@@ -223,10 +224,11 @@ sooner.
 6. The same trial run refused five of six lifecycle package sources for hard-coded hosts,
    including a model endpoint and a cloud metadata server. Whether the model the harness is
    given belongs in the derived set as a literal, or only by binding, needs the AgentMesh team.
-   Owner: AgentMesh team.
+   Owner: needs input from the AgentMesh team, not yet raised with them.
 7. The package digest is not the archive digest of Common Agent Specification §12.6 rule 5, so a
    statement cannot be joined to build or deployment records by digest. Whether the request
-   should carry the archive digest for the answer to echo. Owner: AgentMesh team.
+   should carry the archive digest for the answer to echo. Owner: needs input from the
+   AgentMesh team, not yet raised with them.
 8. SR-22 reads `import`, `export … from`, `require` and `import_module` with a literal
    name. Other ways to load code, such as `require.call`, `require.apply`, `Reflect.apply`, an
    alias of `require`, `new Worker(…)`, `__import__`, `runpy` or a `.pth` file, are not read,

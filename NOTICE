@@ -1,13 +1,42 @@
 adlc-security-reviewer
-Copyright 2026 Redacted Ventures LLC
+Copyright (c) 2026 Redacted Ventures LLC
 
-This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+This project is licensed under the MIT License (LICENSE), except for the third-party
+material below, which keeps its own license.
 
-It is written against the Agent Development Lifecycle and the Common Agent Standards,
-published by AgentMesh, Inc. under Apache-2.0:
-  https://github.com/CommonAgent/adlc
-  https://github.com/CommonAgent/common-agent-standards
+This is an independent implementation by Redacted Ventures LLC. It is not made, reviewed or
+endorsed by AgentMesh, Inc., by Jeff Schneider, or by the editors of the Agent Development
+Lifecycle or the Common Agent Standards.
 
-The credential patterns in agents/security-reviewer/scripts/secrets.mjs are to be taken from
-agents/publisher/scripts/inspect.mjs in CommonAgent/adlc, Copyright AgentMesh, Inc.,
-licensed under Apache-2.0.
+1. Credential patterns
+
+   The SECRETS list in agents/security-reviewer/scripts/secrets.mjs is copied, with changes,
+   from agents/publisher/scripts/inspect.mjs in The Agent Development Lifecycle
+   (https://github.com/CommonAgent/adlc, commit fa174cf88c22db8599f6447dbc40740cf046c36a),
+   Copyright 2026 Jeff Schneider, licensed under the Apache License, Version 2.0
+   (LICENSES/Apache-2.0.txt). Changes: the PKCS#12 keystore pattern is written with -{5} for
+   its dashes; each entry carries a `what` naming its kind; carriesASecret is rewritten and
+   secretsIn is added. The NOTICE of that work reads:
+
+    The Agent Development Lifecycle
+    Copyright 2026 Jeff Schneider
+
+    This repository holds reference implementations of the role agents of the
+    Agent Development Lifecycle (https://agenticdevelopment.ai), sponsored by
+    AgentMesh. The code, its tests, its templates and its documentation are
+    licensed under Apache-2.0 (LICENSE).
+
+    agents/package-maker/plugin-1.0.0.schema.json is the Agent Plugins manifest
+    schema (https://agent-plugins.org/schemas/1.0.0/plugin.schema.json), pinned
+    here so a manifest can be checked offline.
+
+2. Specification text
+
+   docs/spec.md, and the comments of conformance/security-reviewer-check.mjs, quote, paraphrase
+   and restate as numbered requirements short passages of the Common Agent Standards
+   (https://github.com/CommonAgent/common-agent-standards, commit
+   058e5bd432f10a0d842da4926fa8fc3f77ea7ec0): ROLES.md §34 and sections 6.4, 7.5, 12.2 to 12.6
+   and 18.2 of the Common Agent Specification. That text is Copyright 2026 Jeff Schneider,
+   licensed under Creative Commons Attribution 4.0 International
+   (https://creativecommons.org/licenses/by/4.0/). The passages here are adapted: shortened,
+   reworded and turned into requirements, and they are not the standard's own text.

@@ -1,6 +1,8 @@
 # What the Test-stage handoff locks needs the spec owner's review. The Code stage's paths
-# (WRITABLE in tools/lock.mjs) have no code owner, so any one approval merges them.
+# (WRITABLE in tools/lock.mjs) have no code owner, so the one approval main's ruleset asks
+# for merges them.
 *                                    @PaulDuvall
 /agents/security-reviewer/scripts/
 /docs/rounds.md
 /README.md
+/examples/

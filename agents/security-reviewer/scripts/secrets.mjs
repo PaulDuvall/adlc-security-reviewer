@@ -1,6 +1,8 @@
-// Credential patterns, from the publisher's list (CommonAgent/adlc
-// agents/publisher/scripts/inspect.mjs at fa174cf). Every entry is a thing that is only ever a
-// live credential. Each pattern is written so that it does not match its own source text,
+// Credential patterns, copied with changes from the publisher's list: CommonAgent/adlc
+// agents/publisher/scripts/inspect.mjs at fa174cf, Copyright 2026 Jeff Schneider, Apache-2.0
+// (see NOTICE and LICENSES/Apache-2.0.txt). Changed here: each entry names its kind,
+// carriesASecret is rewritten and secretsIn is added. Every entry is a thing that is only ever
+// a live credential. Each pattern is written so that it does not match its own source text,
 // since this file is a shipped file of a package this reviewer reviews (SR-21): the keystore
 // header is written with `-{5}` for its dashes, so the literal header never appears here.
 

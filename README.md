@@ -12,20 +12,25 @@ The role is defined in [ROLES.md §34](https://github.com/CommonAgent/common-age
 Standards, summarized at [agentroles.ai/security-reviewer](https://agentroles.ai/security-reviewer.html),
 and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages.html#security).
 
+> This is an independent implementation by Redacted Ventures LLC. It is not made, reviewed or
+> endorsed by AgentMesh, Inc., by Jeff Schneider, or by the editors of the Agent Development
+> Lifecycle or the Common Agent Standards.
+
 ## Where it stands
 
-Status on 27 October 2026. Spec 0.3.0 and its 180 tests are locked at `bd9774f`, and every check
-on GitHub passes. Two things are open: the planted-bug check, being measured again, and 27
-decisions the spec leaves open.
+Status on 27 October 2026. Spec 0.3.0 and its 180 tests were locked at `bd9774f`. Round 15
+changes 10 locked files and adds 2 to ready the repository for public release, so the checks
+on GitHub fail on the lock until the spec owner locks them again. Two things are open: the
+planted-bug check, being measured again, and 27 decisions the spec leaves open.
 
 | | Check | Result |
 |---|---|---|
-| ✅ | Automated checks on GitHub | Pass on `bd9774f`, the latest re-lock |
+| 🟡 | Automated checks on GitHub | Passed on `bd9774f`, the last re-lock. Fail on the lock until round 15's files are locked again |
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
 | ✅ | Tests | 180 of 180 pass. Each one traces to a requirement |
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
-| ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 33 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
+| ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 35 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
 | 🟡 | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Round 8: 67.4% of 3,304. Before this reopen, on round 11's code and 87 tests: 70.8% of 3,464. After the reopen, on round 13's code and 180 tests: being measured |
 | 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [16 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21 |
 
@@ -71,7 +76,7 @@ every reason and lists this judgment as not checked.
 ## Use it on your agent
 
 You have built an agent and want it on AgentMesh. Run this review before you package or
-deploy it. It names, in one answer, everything that would stop an owner installing it.
+deploy it. It names, in one answer, everything this reviewer would refuse.
 
 ### Where it fits
 
@@ -241,6 +246,24 @@ vulnerabilities in dependencies and addresses built at runtime. A person still d
 each reason is good enough. The digest covers your package folder, not the release archive,
 so it will not match the digest Release records ([open question 7](docs/spec.md#open-questions)).
 
+#### Known gaps
+
+A pass means the package has none of the faults the reviewer looks for. It is not yet proof
+against a publisher who sets out to get past it. These pass today:
+
+| Gap | What gets past | Where it is tracked |
+|---|---|---|
+| Other ways to load code | `require.call`, `require.apply`, `Reflect.apply`, an alias of `require`, `new Worker(…)`, `__import__`, `runpy` or a `.pth` file can load a file the reviewer never read. `not_checked` does not name them | [Open question 8](docs/spec.md#open-questions) |
+| What a tool server runs | A declared MCP server's `command` may run an unshipped file, and its `url` may name any host | [Open question 9](docs/spec.md#open-questions) |
+| Links to folders | Files reached only through a symbolic link to a folder are not read | [Open question 10](docs/spec.md#open-questions) |
+| Old npm lockfiles | A version-1 `package-lock.json` has no entries the pin check reads, so an unpinned one passes without a mention | [Open question 11](docs/spec.md#open-questions) |
+| An alias of the environment | `const e = process.env; e.BILLING_API_KEY` is not seen as a read | [U10](docs/rounds.md#points-the-statement-does-not-settle) |
+| Addresses built at runtime | A host or module path computed by the code, such as `` `https://${host}/` ``, is not refused. `not_checked` says such destinations were not checked | [U8](docs/rounds.md#points-the-statement-does-not-settle) |
+| Credentials of other kinds | Shipped files are searched for 7 patterns: private keys, PKCS#12 keystores, service-account keys, AWS keys and NKey seeds. Any other secret string passes | SR-13 |
+
+Report a way past the reviewer privately, as [SECURITY.md](SECURITY.md) says. These gaps are
+already known.
+
 ## What has been done
 
 This repo was built in the ADLC's four build stages: requirements, design, tests and code. All
@@ -250,8 +273,8 @@ four are done.
 flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
-  tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>33 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 1,599 lines<br/>Node built-ins only<br/>14 rounds"]
+  tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
+  cod["<b>Code</b> ✅<br/>6 programs, 1,601 lines<br/>Node built-ins only<br/>15 rounds"]
   nxt["<b>Next</b><br/>planted bugs measured again<br/>27 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
@@ -260,9 +283,9 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in fourteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
-other rounds attacked the code and fixed what broke, except rounds 10 and 14, which changed the
-checks around it.
+The Code stage ran in fifteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+other rounds attacked the code and fixed what broke, except rounds 10, 14 and 15, which changed
+the checks and files around it.
 [docs/rounds.md](docs/rounds.md) has the full record.
 
 | Round | What was tried | What it found |
@@ -281,6 +304,7 @@ checks around it.
 | 12 | Spec 0.3.0 and 84 new tests from the spec owner's reopen | 3 new tests failed until fixed: a specifier with an escape that cannot be decoded is refused, `process['env']` reads count, and an encoding declaration's line counts `\n` only. All 171 tests pass |
 | 13 | An adversarial review of the reopen, then a comparison with Node of 1,716 environment-read forms | 6 gaps, all fixed: a 4,000-point program ran the reviewer out of memory; a long run of space took it quadratic time; `.mts`, `.cts` and `.pyw` programs went unread; an escape in `process` or `env` hid a read; overlapping credentials leaked a fragment; a `%5C` import was refused. 8 new tests; all 179 pass |
 | 14 | Make `examples/` the code writer's, check each example's recorded answer, and check the README's figures on every push | No program changed. The examples test fails on a wrong recorded answer, and the README check on a stale figure. All 180 tests pass |
+| 15 | Ready the repository for public release: licence, notices, a security policy and a review gate on main | No program changed but a comment. The project is MIT. The credential patterns copied from CommonAgent/adlc keep their Apache-2.0 notice, and the spec's adapted standard text its CC BY 4.0 credit. The write hook now blocks a write when it cannot run. `tools/handoff.sh` now sets rulesets where a pull request to main needs a code owner's approval and a green check, and only the owner may push past them |
 
 ## How the tests stay honest
 
@@ -290,7 +314,7 @@ checks on GitHub fail on any push that changes them.
 ```mermaid
 flowchart LR
   so["<b>Spec owner</b><br/>writes the spec and the tests"]
-  lock["<b>The lock</b><br/>LOCK.json: a fingerprint of 33 files<br/>a git tag, handoff, marks where they were locked"]
+  lock["<b>The lock</b><br/>LOCK.json: a fingerprint of 35 files<br/>a git tag, handoff, marks where they were locked"]
   cw["<b>Code writer, an AI agent</b><br/>may change only the 6 programs,<br/>the round record, this README<br/>and the examples"]
   ci["<b>Checks on GitHub, on every push to main</b><br/>no credential in the history<br/>no locked file changed<br/>180 tests pass, 4 role checks pass<br/>emptied programs fail every test<br/>the README's figures are current"]
   so -->|"changes the spec or tests,<br/>then locks them again"| lock
@@ -312,7 +336,8 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 | Item | Owner | Where |
 |---|---|---|
 | Measure the planted-bug check again, on round 13's code and 180 tests | Code writer, running now | [docs/rounds.md](docs/rounds.md), round 12 |
-| 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. AgentMesh team: 4 | [docs/spec.md](docs/spec.md#open-questions) |
+| Lock round 15's files again, and apply its two rulesets on GitHub | Spec owner | [docs/rounds.md](docs/rounds.md), round 15; `tools/handoff.sh` |
+| 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Needs input from AgentMesh: 4, not yet raised with them | [docs/spec.md](docs/spec.md#open-questions) |
 | 16 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
 | On a developer's own machine, the lock check skips files that local git settings hide: `.git/info/exclude`, global excludes or an untracked `.gitignore`. The checks on GitHub are unaffected | Spec owner; accepted as a known limit | [docs/rounds.md](docs/rounds.md), round 10 |
 
@@ -323,7 +348,8 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 | `docs/spec.md` | The job, as 23 requirements | Spec owner |
 | `docs/traceability.md` | Each requirement, its tests and its program | Spec owner |
 | `agents/security-reviewer/test/`, `conformance/` | The tests and the role checks | Spec owner |
-| Everything else: `tools/`, `.github/`, `LOCK.json`, `CLAUDE.md` | The lock, the checks and the code writer's instructions | Spec owner |
+| `CLAUDE.md`, `.claude/` | The code writer's instructions, and the hook that stops it editing locked files. They configure the AI agent that writes the code; a person using the reviewer needs neither | Spec owner |
+| Everything else: `tools/`, `.github/`, `LOCK.json`, `LICENSE`, `NOTICE`, `SECURITY.md` | The lock, the checks, the licence and the security policy | Spec owner |
 | `agents/security-reviewer/scripts/` | The six programs | Code writer |
 | `docs/rounds.md`, `README.md` | The record of each round, and this page | Code writer |
 | `examples/` | Sample agents, the requests [Use it on your agent](#use-it-on-your-agent) runs, and the answer recorded for each | Code writer; the suite checks each answer |
@@ -343,3 +369,12 @@ npm run verify
 | `npm run verify` | Runs all four |
 
 Node 22.13 or later and git. No dependencies.
+
+## Licence
+
+MIT: see [LICENSE](LICENSE). Two parts come from other works and keep their own terms. The
+credential patterns in `secrets.mjs` are copied from [CommonAgent/adlc](https://github.com/CommonAgent/adlc)
+under Apache-2.0, and `docs/spec.md` adapts passages of the [Common Agent Standards](https://github.com/CommonAgent/common-agent-standards)
+under CC BY 4.0. [NOTICE](NOTICE) has the details.
+
+To report a way past the reviewer, see [SECURITY.md](SECURITY.md).

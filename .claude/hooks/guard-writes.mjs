@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // PreToolUse hook for Edit, Write, MultiEdit and NotebookEdit. Allows a write only inside the
 // Code stage's paths (tools/lock.mjs WRITABLE). Exit 2 blocks the call and shows stderr to
-// Claude. Fails closed: a call whose path cannot be read is blocked.
+// Claude. Fails closed: a call whose path cannot be read is blocked, and .claude/settings.json
+// sets onFailure to block, so a hook that cannot start or crashes blocks the call too.
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { writable } from "../../tools/lock.mjs";

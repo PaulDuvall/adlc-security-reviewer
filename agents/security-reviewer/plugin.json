@@ -1,11 +1,11 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "security-reviewer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Reads an Agent Package and the spending limit its owner set, before the agent is installed. Hands back a statement of what the agent may reach and why, what it may spend, what it must never do, and what was accepted knowingly, or a refusal naming everything that stopped it.",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "author": {
-    "name": "Redacted Ventures"
+    "name": "Redacted Ventures LLC"
   },
   "keywords": [
     "role-security-reviewer",

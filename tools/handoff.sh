@@ -7,9 +7,8 @@
 #
 # Reopening the Test stage later, as the spec owner, on main: change the locked files, then
 #   node tools/removal-check.mjs && node tools/lock.mjs --write && git add -A && git commit -m "Re-lock"
-# (`git add -A` takes new files too, which LOCK.json lists), without pushing it yet. Lift the
-# "handoff tag is fixed" ruleset, move the tag to that commit, push the tag, restore the ruleset,
-# and only then push main:
+# (`git add -A` takes new files too, which LOCK.json lists), without pushing it yet. Move the
+# tag to that commit and push it, then push main. The spec owner bypasses the tag's ruleset:
 #   git tag -fa handoff -m "Test stage reopen" && git push -f origin handoff && git push origin main
 # CI's diff and lock steps compare with the tag, so a run that starts before the tag moves stays
 # red. Pushed in this order, main's run sees the moved tag. Commits after the re-lock may touch
@@ -50,22 +49,25 @@ gh repo create "$repo" "$visibility" --source . --remote origin --push
 git push -q origin handoff
 
 echo "== protect main and the handoff tag"
-gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "tag ruleset: active" || echo "tag ruleset: NOT created (rulesets on private repositories may need a paid plan); protect the tag by hand"
+# The person running this script is the spec owner: they alone may move the tag, and they push
+# to main directly. Anyone else changes main through a pull request that CI passes and the code
+# owner approves, since CI runs the checks as the pull request itself writes them.
+owner_id=$(gh api user --jq .id)
+gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<JSON && echo "tag ruleset: active" || echo "tag ruleset: NOT created (rulesets on private repositories may need a paid plan); protect the tag by hand"
 {
   "name": "handoff tag is fixed",
   "target": "tag",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["refs/tags/handoff"], "exclude": [] } },
+  "bypass_actors": [{ "actor_id": ${owner_id}, "actor_type": "User", "bypass_mode": "always" }],
   "rules": [
     { "type": "update", "parameters": { "update_allows_fetch_and_merge": false } },
     { "type": "deletion" }
   ]
 }
 JSON
-# Work lands on main directly, with no pull request: main cannot be deleted or rewritten, and
-# CI checks every push. The lock, the CI diff against the tag and the write hook keep the Code
-# stage off the locked files; a push that changes one turns CI red.
-gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "main ruleset: active" || echo "main ruleset: NOT created (rulesets on private repositories may need a paid plan); protect main by hand"
+# main cannot be deleted or rewritten, by anyone: this ruleset has no bypass.
+gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "main history ruleset: active" || echo "main history ruleset: NOT created (rulesets on private repositories may need a paid plan); protect main by hand"
 {
   "name": "main keeps its history",
   "target": "branch",
@@ -74,6 +76,26 @@ gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "mai
   "rules": [
     { "type": "deletion" },
     { "type": "non_fast_forward" }
+  ]
+}
+JSON
+# Anyone but the spec owner lands on main by a pull request the code owner approves and CI
+# passes. 15368 is the GitHub Actions app, so only a workflow run can satisfy the check.
+gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<JSON && echo "main review ruleset: active" || echo "main review ruleset: NOT created (rulesets on private repositories may need a paid plan); protect main by hand"
+{
+  "name": "main takes reviewed, green pull requests",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "bypass_actors": [{ "actor_id": ${owner_id}, "actor_type": "User", "bypass_mode": "always" }],
+  "rules": [
+    { "type": "pull_request", "parameters": {
+        "dismiss_stale_reviews_on_push": true, "require_code_owner_review": true,
+        "require_last_push_approval": true, "required_approving_review_count": 1,
+        "required_review_thread_resolution": false } },
+    { "type": "required_status_checks", "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [{ "context": "verify", "integration_id": 15368 }] } }
   ]
 }
 JSON

@@ -13,5 +13,10 @@ Run three passes and tag each finding with its pass.
 Important means a requirement is broken or weakened. Style and naming are nits: report at most
 five and count the rest.
 
+A pull request that changes `.github/`, `tools/`, `.claude/`, `LOCK.json`, `CLAUDE.md`,
+`docs/spec.md`, `docs/traceability.md` or the tests changes what judges the code: CI runs the
+checks as that pull request writes them. Report every such change as important, so the spec
+owner reviews it, whatever CI says.
+
 Do not report what CI already enforces: the lock, the handoff diff, the suite, the conformance
 cases, the removal check and gitleaks.
