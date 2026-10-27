@@ -190,7 +190,7 @@ function dependencyUnpinned(pkg) {
 
 // Node tries a name as written, then with each ending, then as a folder: its package.json
 // `main`, then its index. The ES module and TypeScript endings cover a bundler's reading too.
-const ENDINGS = ["", ".js", ".json", ".node", ".mjs", ".cjs", ".ts"];
+const ENDINGS = ["", ".js", ".json", ".node", ".mjs", ".cjs", ".ts", ".mts", ".cts"];
 const INDEXES = ENDINGS.slice(1).map((e) => `index${e}`);
 const RELATIVE = /^\.\.?(?:[/\\]|$)/;
 // A built-in module, or a URL that SR-08 refuses already.
@@ -285,6 +285,8 @@ function relativeTarget(pkg, program, value, esm) {
     // An ES module specifier is a URL: escapes decoded, `?` and `#` dropped, `%2e%2e` a step up.
     try {
       const url = new URL(value, pathToFileURL(from));
+      // Node rejects an encoded `/` or `\` outright, so such an import loads nothing.
+      if (/%2f|%5c/i.test(url.pathname)) return null;
       abs = fileURLToPath(url);
       written = url.pathname;
     } catch { return null; }

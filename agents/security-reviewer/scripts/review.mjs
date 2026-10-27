@@ -33,14 +33,35 @@ const SPECIAL = /[.*+?^${}()|[\]\\]/g;
 const PEM_BLOCK = /-{5}BEGIN [A-Z0-9 ]*PRIVATE KEY-{5}[\s\S]*?(?:-{5}END [A-Z0-9 ]*PRIVATE KEY-{5}|$)/g;
 const SHAPES = SECRETS.map((s) => new RegExp(s.find.source, `${s.find.flags}g`));
 
+/** A string with every match of the patterns withheld. All matches are found in the string as
+ *  given and merged where they overlap or touch, so withholding one leaves no fragment of
+ *  another (SR-13). */
+function withholdText(s, patterns) {
+  const spans = patterns.flatMap((re) => [...s.matchAll(re)].filter((m) => m[0]).map((m) => [m.index, m.index + m[0].length]));
+  if (!spans.length) return s;
+  spans.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const [start, end] of spans) {
+    const last = merged.at(-1);
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+  let out = "";
+  let at = 0;
+  for (const [start, end] of merged) {
+    out += `${s.slice(at, start)}[withheld]`;
+    at = end;
+  }
+  return out + s.slice(at);
+}
+
 /** Every string in the answer with each credential text found in the package replaced, in
  *  any case (a URL's host is lowercased), and with anything else shaped like a credential
  *  replaced too, since a declaration's decoded text can differ from its bytes (SR-13). */
 function withheld(value, texts) {
-  const found = [...new Set(texts)].sort((a, b) => b.length - a.length || (a < b ? -1 : 1))
-    .map((t) => new RegExp(t.replace(SPECIAL, "\\$&"), "gi"));
+  const patterns = [PEM_BLOCK, ...[...new Set(texts)].map((t) => new RegExp(t.replace(SPECIAL, "\\$&"), "gi")), ...SHAPES];
   const scrub = (v) => {
-    if (typeof v === "string") return [PEM_BLOCK, ...found, ...SHAPES].reduce((s, re) => s.replace(re, "[withheld]"), v);
+    if (typeof v === "string") return withholdText(v, patterns);
     if (Array.isArray(v)) return v.map(scrub);
     if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrub(x)]));
     return v;

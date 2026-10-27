@@ -14,20 +14,20 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 
 ## Where it stands
 
-Status on 27 October 2026. Spec 0.3.0 and 84 new tests have landed, and all 171 tests pass. The
+Status on 27 October 2026. Spec 0.3.0 and 91 new tests have landed, and all 178 tests pass. The
 checks on GitHub fail until the spec owner re-locks the changed files. Two things are open: the
-planted-bug check, being measured again, and 26 decisions the spec leaves open.
+planted-bug check, being measured again, and 27 decisions the spec leaves open.
 
 | | Check | Result |
 |---|---|---|
 | 🟡 | Automated checks on GitHub | Fail until the spec owner re-locks spec 0.3.0 and its tests. They last passed on `380f67b` |
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
-| ✅ | Tests | 171 of 171 pass. Each one traces to a requirement |
+| ✅ | Tests | 178 of 178 pass. Each one traces to a requirement |
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
-| ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 171 tests pass. Deleting any one program makes 116 to 149 of the 171 tests fail |
+| ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 178 tests pass. Deleting any one program makes 120 to 155 of the 178 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 32 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
-| 🟡 | Planted-bug check | Before this reopen, 3,304 small bugs were planted in copies of the code, and the tests caught 2,226 of them, or 67.4%. The usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Round 9's 58 test ideas are now 84 tests; the check is being measured again |
-| 🟡 | Open decisions | [10 questions the spec leaves open](docs/spec.md#open-questions), and [16 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21 |
+| 🟡 | Planted-bug check | Before this reopen, 3,304 small bugs were planted in copies of the code, and the tests caught 2,226 of them, or 67.4%. The usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Round 9's 58 test ideas are now 84 tests, and a review of them added 7 more; the check is being measured again |
+| 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [16 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21 |
 
 ## What it does for users
 
@@ -239,9 +239,9 @@ four are done.
 flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
-  tst["<b>Test</b> ✅<br/>171 tests, 4 role checks<br/>32 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 1,550 lines<br/>Node built-ins only<br/>12 rounds"]
-  nxt["<b>Next</b><br/>the spec owner re-locks<br/>planted bugs measured again<br/>26 open decisions settled"]
+  tst["<b>Test</b> ✅<br/>178 tests, 4 role checks<br/>32 files locked"]
+  cod["<b>Code</b> ✅<br/>6 programs, 1,598 lines<br/>Node built-ins only<br/>13 rounds"]
+  nxt["<b>Next</b><br/>the spec owner re-locks<br/>planted bugs measured again<br/>27 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
   classDef next stroke:#9a6700,stroke-width:2px,stroke-dasharray:4
@@ -249,7 +249,7 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in twelve rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+The Code stage ran in thirteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
 other rounds attacked the code and fixed what broke, except round 10, which fixed the file lock.
 [docs/rounds.md](docs/rounds.md) has the full record.
 
@@ -267,6 +267,7 @@ other rounds attacked the code and fixed what broke, except round 10, which fixe
 | 10 | Make the file lock use git's list of files | Locking now works in any copy of the repo. A review found 7 issues in the change, all fixed. No program changed |
 | 11 | Check the 58 test ideas against current code, then compare every legacy escape with Node | 1 bug, fixed: `require("./test\5710.js")` let an agent load an unread file past the gate. All 4,686 legacy escapes now decode as Node decodes them |
 | 12 | Spec 0.3.0 and 84 new tests from the spec owner's reopen | 3 new tests failed until fixed: a specifier with an escape that cannot be decoded is refused, `process['env']` reads count, and an encoding declaration's line counts `\n` only. All 171 tests pass |
+| 13 | An adversarial review of the reopen, then a comparison with Node of 1,716 environment-read forms | 5 gaps, all fixed: a 4,000-point program ran the reviewer out of memory; `.mts`, `.cts` and `.pyw` programs went unread; an escape in `process` or `env` hid a read; overlapping credentials leaked a fragment; a `%5C` import was refused. 7 new tests; all 178 pass |
 
 ## How the tests stay honest
 
@@ -278,7 +279,7 @@ flowchart LR
   so["<b>Spec owner</b><br/>writes the spec and the tests"]
   lock["<b>The lock</b><br/>LOCK.json: a fingerprint of 32 files<br/>a git tag, handoff, marks where they were locked"]
   cw["<b>Code writer, an AI agent</b><br/>may change only the 6 programs,<br/>the round record and this README"]
-  ci["<b>Checks on GitHub, on every push to main</b><br/>no credential in the history<br/>no locked file changed<br/>171 tests pass, 4 role checks pass<br/>emptied programs fail every test"]
+  ci["<b>Checks on GitHub, on every push to main</b><br/>no credential in the history<br/>no locked file changed<br/>178 tests pass, 4 role checks pass<br/>emptied programs fail every test"]
   so -->|"changes the spec or tests,<br/>then locks them again"| lock
   lock --> ci
   cw -->|"push"| ci
@@ -298,7 +299,7 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 | Item | Owner | Where |
 |---|---|---|
 | Measure the planted-bug check again, now that round 9's ideas are 84 tests | Code writer, after the re-lock | [docs/rounds.md](docs/rounds.md), round 12 |
-| 10 questions the spec leaves open, such as other ways code can load code, and what an agent's tool servers run | Spec owner: 6. AgentMesh team: 4 | [docs/spec.md](docs/spec.md#open-questions) |
+| 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. AgentMesh team: 4 | [docs/spec.md](docs/spec.md#open-questions) |
 | 16 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
 | On a developer's own machine, the lock check skips files that local git settings hide: `.git/info/exclude`, global excludes or an untracked `.gitignore`. The checks on GitHub are unaffected | Spec owner; accepted as a known limit | [docs/rounds.md](docs/rounds.md), round 10 |
 
@@ -321,7 +322,7 @@ npm run verify
 
 | Command | What it does |
 |---|---|
-| `npm test` | Checks no locked file changed, then runs the 171 tests |
+| `npm test` | Checks no locked file changed, then runs the 178 tests |
 | `npm run conformance` | Runs the 4 role checks |
 | `npm run removal` | Checks the tests fail when the 6 programs are emptied, and when any one is deleted |
 | `npm run verify` | Runs all three |

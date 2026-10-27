@@ -2,7 +2,10 @@
 // whether it starts other processes (SR-08, SR-09, SR-17). Comments are blanked first, with
 // their line breaks kept, so every finding keeps its line and no comment counts.
 
-const LANGUAGES = { ".mjs": "javascript", ".js": "javascript", ".cjs": "javascript", ".ts": "javascript", ".py": "python" };
+const LANGUAGES = {
+  ".mjs": "javascript", ".js": "javascript", ".cjs": "javascript", ".ts": "javascript", ".mts": "javascript", ".cts": "javascript",
+  ".py": "python", ".pyw": "python",
+};
 const CREDENTIAL_PARTS = new Set(["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "CREDENTIALS", "AUTH", "PAT"]);
 
 /** "javascript", "python", or null for a file that is not a program. */
@@ -63,10 +66,14 @@ function javaScriptReadings(text, goal = "either") {
   const readings = [];
   const pending = [[]];
   while (pending.length) {
-    if (readings.length === JS_READINGS) return [{ code: text, hollowed: text, literals: [[0, text.length]] }];
     const prefix = pending.pop();
     const reading = readJavaScript(text, prefix, goal);
     readings.push(reading);
+    // Each prefix still pending, and each about to be, leads to a reading not yet made: once
+    // they pass the budget, stop before copying them, so the work stays linear in the text.
+    if (readings.length + pending.length + reading.choices.length - prefix.length > JS_READINGS) {
+      return [{ code: text, hollowed: text, literals: [[0, text.length]] }];
+    }
     for (let j = reading.choices.length - 1; j >= prefix.length; j -= 1) {
       pending.push([...reading.choices.slice(0, j), !reading.choices[j]]);
     }
@@ -426,13 +433,30 @@ function urlsIn(code, lineAt) {
 // A name is read as it decodes, so an escape in an identifier or a string does not hide it.
 const JS_NAME = String.raw`(?:[\p{ID_Start}_$]|${JS_ESCAPED_CHAR})(?:[\p{ID_Continue}$]|${JS_ESCAPED_CHAR})*`;
 const JS_KEY = String.raw`"((?:[^"\\\n]|\\[\s\S])+)"|'((?:[^'\\\n]|\\[\s\S])+)'|${"`"}((?:[^${"`"}\\$]|\\[\s\S])+)${"`"}`;
-// `process.env`, or `process["env"]` in any quotes, with `?.` for any `.` (SR-09).
-const JS_ENV = String.raw`\bprocess\s*(?:(?:\?\.|\.)\s*env\b|(?:\?\.)?\s*\[\s*(?:"env"|'env'|${"`"}env${"`"})\s*\])`;
+// `process.env`, or `process["env"]` in any quotes, with `?.` for any `.` and either part in
+// parentheses or not (SR-09). Each part
+// is matched as any name or key and kept only where it decodes to `process` and `env`, so an
+// escape such as `\u0070rocess` or `["e\x6ev"]` does not hide a read.
+const JS_ENV = String.raw`(?:\b|(?<![\w\\])(?=\\u))(${JS_NAME})(?:\s*\))*\s*(?:(?:\?\.|\.)\s*(${JS_NAME})|(?:\?\.)?\s*\[\s*(?:${JS_KEY})\s*\])(?:\s*\))*`;
 const JS_ENV_READS = [
   new RegExp(String.raw`${JS_ENV}\s*(?:\?\.|\.)\s*(${JS_NAME})`, "gu"),
   new RegExp(String.raw`${JS_ENV}\s*(?:\?\.)?\s*\[\s*(?:${JS_KEY})\s*\]`, "gu"),
 ];
-const JS_ENV_DESTRUCTURING = new RegExp(String.raw`\{([^{}]*)\}\s*=\s*${JS_ENV}`, "g");
+const JS_ENV_DESTRUCTURING = new RegExp(String.raw`\{([^{}]*)\}\s*=\s*${JS_ENV}`, "gu");
+
+/** The matches of a JavaScript environment pattern whose parts, from group `k`, decode to
+ *  `process` and `env`. After any other match the search resumes one place on, so a read
+ *  inside a longer chain, such as `globalThis.process.env.KEY`, is still found. */
+function envMatches(code, pattern, k) {
+  const found = [];
+  pattern.lastIndex = 0;
+  for (let m = pattern.exec(code); m; m = pattern.exec(code)) {
+    if (jsValue(m[k]) === "process" && jsValue(m[k + 1] ?? m[k + 2] ?? m[k + 3] ?? m[k + 4]) === "env") found.push(m);
+    else pattern.lastIndex = m.index + 1;
+  }
+  return found;
+}
+
 // Python's string forms, as a read names them: an optional prefix, then one quoted string.
 const PY_KEY = String.raw`([rRuU]?)(?:"((?:[^"\\\n]|\\[\s\S])+)"|'((?:[^'\\\n]|\\[\s\S])+)')`;
 const PY_ENV_READS = [
@@ -447,7 +471,7 @@ const DESTRUCTURED_KEY = new RegExp(String.raw`^\s*(?:"(?<dq>(?:[^"\\]|\\[\s\S])
  *  one name and is not counted. */
 function destructured(code, lineAt) {
   const found = [];
-  for (const m of code.matchAll(JS_ENV_DESTRUCTURING)) {
+  for (const m of envMatches(code, JS_ENV_DESTRUCTURING, 2)) {
     let offset = m.index + 1;
     for (const item of m[1].split(",")) {
       const key = DESTRUCTURED_KEY.exec(item);
@@ -466,8 +490,8 @@ function envIn(code, language, lineAt) {
   const env = [];
   const python = language === "python";
   for (const pattern of python ? PY_ENV_READS : JS_ENV_READS) {
-    for (const m of code.matchAll(pattern)) {
-      const raw = python ? m[2] ?? m[3] : m[1] ?? m[2] ?? m[3];
+    for (const m of python ? code.matchAll(pattern) : envMatches(code, pattern, 1)) {
+      const raw = python ? m[2] ?? m[3] : m[6] ?? m[7] ?? m[8];
       const name = python ? (/[rR]/.test(m[1]) ? raw : pythonDecode(raw)) : jsValue(raw);
       if (!name) continue;
       // A name this review cannot decode is named as written.
@@ -709,7 +733,7 @@ const urlKey = (u) => `${u.line}\0${u.host}`;
  *  `from` imports from it. Either has `undecodable` when its literal cannot be read. An environment
  *  read whose name cannot be read is `undecodable` too. `coding` is a Python program's PEP 263
  *  declaration, {name, line}, or null. `path`, when given, says whether a JavaScript program is
- *  a script (.cjs) or a module (.mjs). */
+ *  a script (.cjs, .cts) or a module (.mjs, .mts). */
 export function findReach(source, language, path = "") {
   // A byte order mark is not code: Python skips it, and JavaScript reads it as space.
   const text = source.charCodeAt(0) === 0xfeff ? ` ${source.slice(1)}` : source;
@@ -729,8 +753,9 @@ export function findReach(source, language, path = "") {
     spawns = spawnsIn(language, imports, tokens, lineAt);
     coding = pythonCoding(text);
   } else {
-    // Node reads a .cjs file as a script and a .mjs file as a module; a .js or .ts file may be either.
-    const goal = /\.cjs$/i.test(path) ? "script" : /\.mjs$/i.test(path) ? "module" : "either";
+    // Node reads a .cjs or .cts file as a script and a .mjs or .mts file as a module; a .js or
+    // .ts file may be either.
+    const goal = /\.c[jt]s$/i.test(path) ? "script" : /\.m[jt]s$/i.test(path) ? "module" : "either";
     // Every reading is read on its own and what any of them finds counts (SR-08), so no
     // reading's misreading hides code and no mix of two readings makes up code.
     const found = new Map();
