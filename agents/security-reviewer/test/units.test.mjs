@@ -58,7 +58,7 @@ test("SR-19 packageDigest follows its definition", () => {
   assert.equal(packageDigest(odd), `sha256:${createHash("sha256").update(bytewise).digest("hex")}`, "paths sort by bytes");
 });
 
-test("ships excludes test folders, node_modules, .git and test files", () => {
+test("SR-19 ships excludes test folders, node_modules, .git and test files", () => {
   for (const p of ["test/a.mjs", "a/tests/b.py", "node_modules/x/i.js", ".git/config", "scripts/read.test.mjs"]) {
     assert.equal(ships(p), false, p);
   }
@@ -69,7 +69,7 @@ test("ships excludes test folders, node_modules, .git and test files", () => {
 
 // reach.mjs
 
-test("languageOf names JavaScript and Python programs, and nothing else", () => {
+test("SR-08 languageOf names JavaScript and Python programs, and nothing else", () => {
   for (const p of ["a.mjs", "a.js", "a.cjs", "a.ts"]) assert.equal(languageOf(p), "javascript", p);
   assert.equal(languageOf("a.py"), "python");
   for (const p of ["a.md", "a.json", "a.sh", "Makefile"]) assert.equal(languageOf(p), null, p);
@@ -120,6 +120,8 @@ test("SR-08 findReach ends comments where each language ends them, and keeps str
     [`// c${ls}fetch("https://h6.example");`, [{ host: "h6.example", line: 1 }]],
     ['// c\rfetch("https://h7.example");', [{ host: "h7.example", line: 1 }]],
     ['const u = "https://redis_cache:6379/";', [{ host: "redis_cache", line: 1 }]],
+    ['export default /[/*]/;\nfetch("https://h8.example");\n// */', [{ host: "h8.example", line: 2 }]],
+    ["const q = x.default / 2; // https://c4.example", []],
   ];
   for (const [text, urls] of js) assert.deepEqual(findReach(text, "javascript").urls, urls, text);
   const py = [
@@ -177,13 +179,45 @@ test("SR-17 findReach finds process starts", () => {
   assert.deepEqual(hosts(findReach("export const x = 1;\n", "javascript")), []);
 });
 
-test("isCredentialName reads the parts of a name", () => {
+test("SR-09 isCredentialName reads the parts of a name", () => {
   for (const n of ["TEXT_API_KEY", "GITHUB_TOKEN", "DB_PASSWORD", "my_secret", "GH_PAT", "AWS_CREDENTIALS", "BASIC_AUTH", "PASSWD", "TOKEN_FILE", "AWS_CREDENTIAL"]) {
     assert.equal(isCredentialName(n), true, n);
   }
   for (const n of ["AUTHOR_NAME", "TOKENIZER_PATH", "KEYBOARD_LAYOUT", "LOG_LEVEL", "TEXT_MODEL", "DRAFT_HOST_URL", "API-KEY"]) {
     assert.equal(isCredentialName(n), false, n);
   }
+});
+
+test("SR-22 findReach finds every import, re-export and require, and none a literal only contains", () => {
+  const js = [
+    'import a from "./a.mjs";',
+    'export { "b" } from "./b.mjs";',
+    "import {",
+    "  c,",
+    '} from "./c.mjs";',
+    'const d = await import("./d.mjs", {});',
+    'const e = require?.("./e.js",);',
+    'const f = require("./" + name);',
+    "const g = \"require('./g.js')\";",
+    'const h = `import h from "./h.mjs"`;',
+    "export default /[/*]/;",
+    'import "./i.mjs"; // */',
+  ].join("\n");
+  assert.deepEqual(findReach(js, "javascript").imports.map(({ specifier, esm, line }) => [specifier, esm, line]), [
+    ["./a.mjs", true, 1], ["./b.mjs", true, 2], ["./c.mjs", true, 5], ["./d.mjs", true, 6], ["./e.js", false, 7], ["./i.mjs", true, 12],
+  ]);
+  assert.equal(findReach('import "./\\x74est/j.mjs";', "javascript").imports[0]?.value, "./test/j.mjs");
+  const py = [
+    "from . import tests",
+    "from .a.b import (c,",
+    "    d as e)",
+    "import f.g as h, i",
+    's = "from .j import k"',
+    "if x: from .. l import m",
+  ].join("\n");
+  assert.deepEqual(findReach(py, "python").imports.map(({ specifier, names, line }) => [specifier, names, line]), [
+    [".", ["tests"], 1], [".a.b", ["c", "d"], 2], ["f.g", [], 4], ["i", [], 4], ["..l", ["m"], 6],
+  ]);
 });
 
 // secrets.mjs

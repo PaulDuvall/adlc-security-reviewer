@@ -17,9 +17,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const LOCK = "LOCK.json";
 
-/** What the Code stage may write. Everything else is locked. */
+/** What the Code stage may write: the six programs plugin.json lists, by name, so that no
+ *  module is added beside them. Everything else is locked. */
 export const WRITABLE = [
-  /^agents\/security-reviewer\/scripts\/[a-z0-9-]+\.mjs$/,
+  /^agents\/security-reviewer\/scripts\/(?:read-package|reach|secrets|rules|statement|review)\.mjs$/,
   /^docs\/rounds\.md$/,
   /^README\.md$/,
 ];
@@ -75,7 +76,7 @@ if (mode === "imported") {
   }
   for (const p of Object.keys(now)) if (!(p in recorded)) problems.push(`added outside the Code stage's paths: ${p}`);
   if (problems.length) {
-    process.stderr.write(`The handoff lock does not hold. The Code stage may write only:\n  agents/security-reviewer/scripts/*.mjs\n  docs/rounds.md\n  README.md\n${problems.map((x) => `  ${x}`).join("\n")}\n`);
+    process.stderr.write(`The handoff lock does not hold. The Code stage may write only:\n  the six programs in agents/security-reviewer/scripts/\n  docs/rounds.md\n  README.md\n${problems.map((x) => `  ${x}`).join("\n")}\n`);
     process.exit(1);
   }
   process.stdout.write(`lock holds: ${Object.keys(recorded).length} files unchanged\n`);

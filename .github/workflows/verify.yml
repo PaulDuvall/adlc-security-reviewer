@@ -50,7 +50,8 @@ jobs:
       - name: Only the Code stage's paths changed since the handoff
         run: |
           git rev-parse -q --verify refs/tags/handoff >/dev/null || { echo "no handoff tag"; exit 1; }
-          bad=$(git diff --name-only handoff HEAD | grep -vE '^(agents/security-reviewer/scripts/[a-z0-9-]+\.mjs$|docs/rounds\.md$|README\.md$)' || true)
+          # --no-renames lists a renamed file under its old name too, so a locked file cannot leave by a rename.
+          bad=$(git diff --no-renames --name-only handoff HEAD | grep -vE '^(agents/security-reviewer/scripts/(read-package|reach|secrets|rules|statement|review)\.mjs|docs/rounds\.md|README\.md)$' || true)
           if [ -n "$bad" ]; then echo "changed outside the Code stage's paths:"; echo "$bad"; exit 1; fi
 
       - name: The handoff lock holds

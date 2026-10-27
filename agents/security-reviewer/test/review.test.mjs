@@ -495,6 +495,21 @@ test("SR-16 lists every ceiling with the owner's number and the side that enforc
   assert.deepEqual(answer.statement.spends.ceilings, [{ system: "text-reasoning", per: "task", most: 25, enforced_by: "platform" }]);
 });
 
+test("SR-16 states leaves where the package states it, and any value but false as leaving", () => {
+  for (const [inDescriptor, inRequirements, want] of [
+    [undefined, undefined, undefined], [false, undefined, false], [undefined, false, false], [false, true, true], ["yes", undefined, true],
+  ]) {
+    const p = basePackage();
+    if (inDescriptor !== undefined) p["agent-descriptor.json"].systems[0].leaves = inDescriptor;
+    if (inRequirements !== undefined) p["agent-runtime-requirements.json"].systems[0].leaves = inRequirements;
+    const { answer } = review(p);
+    const label = JSON.stringify([inDescriptor, inRequirements]);
+    assert.equal(answer?.result, "passed", label);
+    assert.equal(Object.hasOwn(answer.statement.reaches[0], "leaves"), want !== undefined, label);
+    assert.equal(answer.statement.reaches[0].leaves, want, label);
+  }
+});
+
 test("SR-16 states the owner's limit member for member", () => {
   const limit = { ...LIMIT, note: "set by the team lead" };
   const { answer } = review(basePackage(), { spend_limit: limit, ceilings: [] });
@@ -559,7 +574,10 @@ test("SR-17 accepts knowingly an unbound variable that is not credential-like", 
 
 test("SR-18 names what was not checked", () => {
   const nc = review(basePackage()).answer?.statement?.not_checked ?? [];
-  for (const item of [/vulnerab/i, /computed at runtime/i, /sufficient/i, /running/i, /test/i, /node_modules/, /authority/i]) {
+  for (const item of [
+    /vulnerab/i, /computed at runtime/i, /module path/i, /sufficient/i, /running/i, /\btest\b/, /\btests\b/, /node_modules/, /\.git\b/,
+    /\*\.test\.\*/, /authority/i, /external inputs/i, /workspaces/i,
+  ]) {
     assert.ok(nc.some((line) => item.test(line)), `names ${item}`);
   }
 });
@@ -678,6 +696,129 @@ test("SR-22 passes a program that imports only shipped files", () => {
   assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
 });
 
+test("SR-22 refuses an unread file however the specifier is written", () => {
+  const p = withProgram([
+    'import { "a" as b } from "./test/a.mjs";',
+    'const c = await import("./test/c.mjs", { with: { type: "json" } });',
+    'const d = require("./test/d.js",);',
+    'const e = require?.("./test/e.js");',
+    'const f = module.require("./test/f.js");',
+    'import "./\\x74est/g.mjs";',
+    'import "./te\\',
+    'st/h.mjs";',
+    'const i = require("./test/$i.js");',
+    'import "./%74est/j.mjs";',
+    "",
+  ].join("\n"));
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  const expected = [
+    ["./test/a.mjs", 1], ["./test/c.mjs", 2], ["./test/d.js", 3], ["./test/e.js", 4], ["./test/f.js", 5],
+    ["./\\x74est/g.mjs", 6], ["./te\\\nst/h.mjs", 7], ["./test/$i.js", 9], ["./%74est/j.mjs", 10],
+  ];
+  for (const [specifier, line] of expected) {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${JSON.stringify(specifier)}`);
+    assert.equal(r.file, PROGRAM_PATH);
+    assert.equal(r.line, line, specifier);
+  }
+});
+
+test("SR-22 refuses a specifier that resolves to no shipped file the way Node resolves it", () => {
+  const p = withProgram([
+    'const a = require("./x.test");',
+    'const b = require("./lib");',
+    'import "./TEST/c.mjs";',
+    'import "./ghost.mjs";',
+    'import "/etc/d.mjs";',
+    'import "file:///tmp/e.mjs";',
+    'import "data:text/javascript,export default 1";',
+    'import f from "#f";',
+    'import g from "ticket-reader/g";',
+    "",
+  ].join("\n"));
+  p["skills/read-tickets/scripts/x.test.js"] = "module.exports = 1;\n";
+  p["skills/read-tickets/scripts/lib/package.json"] = { main: "./test/b.js" };
+  p["skills/read-tickets/scripts/lib/test/b.js"] = "module.exports = 1;\n";
+  p["package.json"] = { name: "ticket-reader", imports: { "#f": "./skills/read-tickets/scripts/test/f.mjs" }, exports: { "./g": "./tests/g.mjs" } };
+  p["main.cjs"] = 'require("..");\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  const expected = [
+    ["./x.test", PROGRAM_PATH, 1], ["./lib", PROGRAM_PATH, 2], ["./TEST/c.mjs", PROGRAM_PATH, 3], ["./ghost.mjs", PROGRAM_PATH, 4],
+    ["/etc/d.mjs", PROGRAM_PATH, 5], ["file:///tmp/e.mjs", PROGRAM_PATH, 6], ["data:text/javascript,export default 1", PROGRAM_PATH, 7],
+    ["#f", PROGRAM_PATH, 8], ["ticket-reader/g", PROGRAM_PATH, 9], ["..", "main.cjs", 1],
+  ];
+  for (const [specifier, file, line] of expected) {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${specifier}`);
+    assert.equal(r.file, file);
+    assert.equal(r.line, line, specifier);
+  }
+});
+
+test("SR-22 refuses a Python import of a test module however it is written", () => {
+  const p = basePackage();
+  const fullwidth = String.fromCharCode(0xff54, 0xff45, 0xff53, 0xff54);
+  p["skills/read-tickets/scripts/load.py"] = [
+    "from . import test",
+    "from . tests import a",
+    "from \\",
+    "    .test.b import c",
+    "\ffrom .tests import d",
+    "from .pkg import (",
+    "    e,",
+    "    tests as t,",
+    ")",
+    "import os, tests.helpers as h",
+    "import importlib",
+    "m = importlib.import_module('..tests.x', __package__)",
+    `from .${fullwidth} import f`,
+    "",
+  ].join("\n");
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  const expected = [
+    [".test", 1], [".tests", 2], [".test.b", 3], [".tests", 5], [".pkg.tests", 6], ["tests.helpers", 10], ["..tests.x", 12], [`.${fullwidth}`, 13],
+  ];
+  for (const [system, line] of expected) {
+    const r = (answer.refusals ?? []).find((x) => x.rule === "unread-code" && x.system === system && x.line === line);
+    assert.ok(r, `names ${system} at line ${line}`);
+    assert.equal(r.file, "skills/read-tickets/scripts/load.py");
+  }
+});
+
+test("SR-22 does not count import text that a literal or a comment only contains", () => {
+  const p = withProgram([
+    "const help = \"usage: require('./test/x.js')\";",
+    'const s = `import x from "./test/a.mjs"`;',
+    '// import "./test/b.mjs"',
+    'const r = /import "\\.\\/test\\/c"/;',
+    'const t = obj.import("./test/d.mjs");',
+    basePackage()[PROGRAM_PATH],
+  ].join("\n"));
+  p["skills/read-tickets/scripts/doc.py"] = '"""Usage:\n    from .tests import helper\n"""\nHELP = "a: from .test import x"\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+});
+
+test("SR-22 passes a specifier that resolves to a shipped file, a dependency or a built-in", () => {
+  const p = withProgram([
+    'import { shape } from "./shape.mjs";',
+    'const lib = require("./lib");',
+    'const pad = require("left-pad");',
+    'import { readFileSync } from "node:fs";',
+    'import own from "#own";',
+    basePackage()[PROGRAM_PATH],
+  ].join("\n"));
+  p["skills/read-tickets/scripts/shape.mjs"] = "export const shape = (t) => t;\n";
+  p["skills/read-tickets/scripts/lib/index.js"] = "module.exports = {};\n";
+  p["package.json"] = { name: "ticket-reader", imports: { "#own": "./skills/read-tickets/scripts/shape.mjs" } };
+  p["main.mjs"] = 'import "../ticket-reader/skills/read-tickets/scripts/shape.mjs";\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+});
+
 // SR-23
 
 test("SR-23 refuses an mcp.json server the descriptor does not declare", () => {
@@ -692,8 +833,27 @@ test("SR-23 refuses an mcp.json server the descriptor does not declare", () => {
 });
 
 test("SR-23 refuses an mcp.json that cannot be read", () => {
-  for (const body of ["{ not json", "[]\n", `${JSON.stringify({ mcpServers: [] })}\n`]) {
+  for (const body of ["{ not json", "[]\n", `${JSON.stringify({ mcpServers: [] })}\n`, "{}\n", `${JSON.stringify({ servers: {} })}\n`]) {
     const { answer } = review({ ...basePackage(), "mcp.json": body });
     assert.ok(rules(answer).includes("unreadable"), `refuses ${JSON.stringify(body)}`);
+  }
+  const p = basePackage();
+  p["plugin.json"] = { ...p["plugin.json"], mcpServers: "./servers.json" };
+  const r = review(p).answer?.refusals?.find((x) => x.rule === "unreadable");
+  assert.equal(r?.file, "plugin.json", "a plugin.json that names its servers by path");
+});
+
+test("SR-23 refuses an undeclared server in .mcp.json or plugin.json", () => {
+  const server = { "billing-api": { type: "stdio", command: "./bin/billing" } };
+  for (const [path, body] of [
+    [".mcp.json", { mcpServers: server }],
+    ["plugin.json", { ...basePackage()["plugin.json"], mcpServers: server }],
+    [".claude-plugin/plugin.json", { name: "ticket-reader", mcpServers: server }],
+  ]) {
+    const p = basePackage();
+    p[path] = body;
+    const r = refusal(review(p).answer, "undeclared-reach", "billing-api");
+    assert.ok(r, `names the server in ${path}`);
+    assert.equal(r.file, path);
   }
 });

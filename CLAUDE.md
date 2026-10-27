@@ -20,7 +20,7 @@ report it in `docs/rounds.md`. Never resolve it yourself.
 
 - `agents/security-reviewer/scripts/`: the six programs, as `.mjs` files. Keep the exported
   names the unit tests import; the other stand-ins' names are the design's split. Add no
-  module: the locked `plugin.json` lists the six.
+  module: the locked `plugin.json` lists the six, and the lock refuses any other file there.
 - `docs/rounds.md`: your record of each round.
 - `README.md`: status lines only.
 
@@ -46,8 +46,9 @@ report it in `docs/rounds.md`. Never resolve it yourself.
 ## Verifying your work
 
 Run `npm run verify` before reporting any task done, and paste its output. Healthy output shows
-`lock holds: N files unchanged`, `# fail 0`, `4 of 4 cases pass`, and
-`pass  against empty stand-ins: 0 of N tests pass (must be 0)`.
+`lock holds: N files unchanged`, `# fail 0`, `4 of 4 cases pass`,
+`pass  with the programs: N of N traced tests pass, by name`, and
+`pass  against empty stand-ins: 0 of N tests pass (must be 0, with all N traced tests run)`.
 
 ## Done when
 

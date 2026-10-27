@@ -5,10 +5,12 @@
 #
 # Usage: bash tools/handoff.sh <owner>/<repo> [--public]
 #
-# Reopening the Test stage later, as the spec owner: change the locked files, then run
-#   node tools/removal-check.mjs && node tools/lock.mjs --write && git commit -am "Re-lock"
-# lift the "handoff tag is fixed" ruleset, run git tag -f handoff && git push -f origin handoff,
-# and restore the ruleset.
+# Reopening the Test stage later, as the spec owner: on a branch, change the locked files, then
+#   node tools/removal-check.mjs && node tools/lock.mjs --write && git add -A && git commit -m "Re-lock"
+# merge it into main by pull request (`git add -A` takes new files too, which LOCK.json lists),
+# then on main lift the "handoff tag is fixed" ruleset, run
+#   git tag -f handoff && git push -f origin handoff
+# and restore the ruleset. CI's diff and lock steps fail on the pull request until the tag moves.
 set -euo pipefail
 
 repo="${1:?usage: bash tools/handoff.sh <owner>/<repo> [--public]}"
@@ -57,12 +59,11 @@ gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "tag
   ]
 }
 JSON
-# A merge needs one approval from someone other than its author (GitHub never counts the author's
-# own) and the code owner's for locked paths. 15368 is the GitHub Actions app, so only a workflow
-# run can satisfy the verify check.
+# main takes pull requests whose verify check is green, with no bypass. 15368 is the GitHub
+# Actions app, so only a workflow run can satisfy the check.
 gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "main ruleset: active" || echo "main ruleset: NOT created (rulesets on private repositories may need a paid plan); protect main by hand"
 {
-  "name": "main takes green, approved pull requests",
+  "name": "main takes green pull requests",
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
@@ -70,12 +71,32 @@ gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "mai
     { "type": "deletion" },
     { "type": "non_fast_forward" },
     { "type": "pull_request", "parameters": {
-        "dismiss_stale_reviews_on_push": false, "require_code_owner_review": true,
-        "require_last_push_approval": true, "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": false, "require_code_owner_review": false,
+        "require_last_push_approval": false, "required_approving_review_count": 0,
         "required_review_thread_resolution": false } },
     { "type": "required_status_checks", "parameters": {
         "strict_required_status_checks_policy": true,
         "required_status_checks": [{ "context": "verify", "integration_id": 15368 }] } }
+  ]
+}
+JSON
+# A merge also needs one approval from someone other than its author (GitHub never counts the
+# author's own), and the code owner's where it touches a locked path. The person running this
+# script may bypass this ruleset alone, on pull requests only, so that a spec owner who is the
+# only code owner can still land a reopen; the bypass is recorded, and the check above still holds.
+owner_id=$(gh api user --jq .id)
+gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<JSON && echo "review ruleset: active" || echo "review ruleset: NOT created; require reviews by hand"
+{
+  "name": "main takes reviewed pull requests",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "bypass_actors": [{ "actor_id": ${owner_id}, "actor_type": "User", "bypass_mode": "pull_request" }],
+  "rules": [
+    { "type": "pull_request", "parameters": {
+        "dismiss_stale_reviews_on_push": false, "require_code_owner_review": true,
+        "require_last_push_approval": true, "required_approving_review_count": 1,
+        "required_review_thread_resolution": false } }
   ]
 }
 JSON
