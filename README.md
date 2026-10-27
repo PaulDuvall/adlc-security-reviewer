@@ -14,14 +14,13 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 
 ## Where it stands
 
-Status on 27 October 2026. Spec 0.3.0 and its tests are locked, and all 180 tests pass. The
-latest change makes `examples/` the code writer's and checks the README's figures; the checks on
-GitHub fail on it until the spec owner re-locks. Two things are open: the planted-bug check,
-being measured again, and 27 decisions the spec leaves open.
+Status on 27 October 2026. Spec 0.3.0 and its 180 tests are locked at `bd9774f`, and every check
+on GitHub passes. Two things are open: the planted-bug check, being measured again, and 27
+decisions the spec leaves open.
 
 | | Check | Result |
 |---|---|---|
-| 🟡 | Automated checks on GitHub | Passed on `6031543`, the re-lock of spec 0.3.0. Fail on the latest change until the spec owner re-locks it |
+| ✅ | Automated checks on GitHub | Pass on `bd9774f`, the latest re-lock |
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
 | ✅ | Tests | 180 of 180 pass. Each one traces to a requirement |
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
@@ -76,7 +75,7 @@ deploy it. It names, in one answer, everything that would stop an owner installi
 
 ### Where it fits
 
-The review is stage 08 of the [Agentic Development Lifecycle](https://agenticdevelopment.ai/stages.html).
+The review is stage 08 of the [Agent Development Lifecycle](https://agenticdevelopment.ai/stages.html).
 It comes after your code is written and reviewed, and before the agent is packaged and
 deployed. An agent joins the mesh at Deploy, stage 11, so the review comes first: the limits
 are set before any credential is placed.
@@ -253,7 +252,7 @@ flowchart LR
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>33 files locked"]
   cod["<b>Code</b> ✅<br/>6 programs, 1,599 lines<br/>Node built-ins only<br/>14 rounds"]
-  nxt["<b>Next</b><br/>the spec owner re-locks round 14<br/>planted bugs measured again<br/>27 open decisions settled"]
+  nxt["<b>Next</b><br/>planted bugs measured again<br/>27 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
   classDef next stroke:#9a6700,stroke-width:2px,stroke-dasharray:4
