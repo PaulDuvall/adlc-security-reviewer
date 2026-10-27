@@ -20,7 +20,7 @@ planted-bug check, being measured again, and 26 decisions the spec leaves open.
 
 | | Check | Result |
 |---|---|---|
-| 🟡 | Automated checks on GitHub | Fail until the spec owner re-locks spec 0.3.0 and its tests. They last passed on `d9e80b8` |
+| 🟡 | Automated checks on GitHub | Fail until the spec owner re-locks spec 0.3.0 and its tests. They last passed on `380f67b` |
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
 | ✅ | Tests | 171 of 171 pass. Each one traces to a requirement |
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
