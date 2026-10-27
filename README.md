@@ -19,8 +19,8 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 ## Where it stands
 
 Status on 27 October 2026. Spec 0.3.0, its 180 tests and round 15's licence, notices and
-security policy are locked at `3030158`, and every check on GitHub passes. Two things are open:
-the planted-bug check, being measured again, and 27 decisions the spec leaves open.
+security policy are locked at `3030158`, and every check on GitHub passes. The tests catch 91.8% of
+the bugs planted in the code. One thing is open: 27 decisions the spec leaves open.
 
 | | Check | Result |
 |---|---|---|
@@ -30,7 +30,7 @@ the planted-bug check, being measured again, and 27 decisions the spec leaves op
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 35 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
-| 🟡 | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Round 8: 67.4% of 3,304. Before this reopen, on round 11's code and 87 tests: 70.8% of 3,464. After the reopen, on round 13's code and 180 tests: being measured |
+| ✅ | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Now, on round 13's code and 180 tests: 91.8% of all 3,557, with 293 surviving. Before the spec 0.3.0 reopen, on 87 tests: 70.8% of 3,464. Round 8: 67.4% of 3,304 |
 | 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [16 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21 |
 
 ## What it does for users
@@ -273,8 +273,8 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 1,601 lines<br/>Node built-ins only<br/>15 rounds"]
-  nxt["<b>Next</b><br/>planted bugs measured again<br/>27 open decisions settled"]
+  cod["<b>Code</b> ✅<br/>6 programs, 1,601 lines<br/>Node built-ins only<br/>16 rounds"]
+  nxt["<b>Next</b><br/>27 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
   classDef next stroke:#9a6700,stroke-width:2px,stroke-dasharray:4
@@ -282,9 +282,9 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in fifteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+The Code stage ran in sixteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
 other rounds attacked the code and fixed what broke, except rounds 10, 14 and 15, which changed
-the checks and files around it.
+the checks and files around it, and round 16, which measured the tests.
 [docs/rounds.md](docs/rounds.md) has the full record.
 
 | Round | What was tried | What it found |
@@ -304,6 +304,7 @@ the checks and files around it.
 | 13 | An adversarial review of the reopen, then a comparison with Node of 1,716 environment-read forms | 6 gaps, all fixed: a 4,000-point program ran the reviewer out of memory; a long run of space took it quadratic time; `.mts`, `.cts` and `.pyw` programs went unread; an escape in `process` or `env` hid a read; overlapping credentials leaked a fragment; a `%5C` import was refused. 8 new tests; all 179 pass |
 | 14 | Make `examples/` the code writer's, check each example's recorded answer, and check the README's figures on every push | No program changed. The examples test fails on a wrong recorded answer, and the README check on a stale figure. All 180 tests pass |
 | 15 | Ready the repository for public release: licence, notices, a security policy and a review gate on main | No program changed but a comment. The project is MIT. The credential patterns copied from CommonAgent/adlc keep their Apache-2.0 notice, and the spec's adapted standard text its CC BY 4.0 credit. The write hook now blocks a write when it cannot run. `tools/handoff.sh` now sets rulesets where a pull request to main needs a code owner's approval and a green check, and only the owner may push past them |
+| 16 | Plant all 3,557 bugs in round 13's code and run the 180 tests on each | The tests caught 91.8%, up from 70.8% before the spec 0.3.0 reopen. Of the bugs the 87 tests missed and that can be matched, 78% are now caught, and no bug caught before is missed now. 293 survive, not yet sorted |
 
 ## How the tests stay honest
 
@@ -334,7 +335,6 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 
 | Item | Owner | Where |
 |---|---|---|
-| Measure the planted-bug check again, on round 13's code and 180 tests | Code writer, running now | [docs/rounds.md](docs/rounds.md), round 12 |
 | Optional: apply the two rulesets `tools/handoff.sh` now sets, the owner's bypass on the `handoff` tag and main's review gate. Until then a re-lock lifts the tag's ruleset, and main takes any admin's push | Spec owner | [docs/rounds.md](docs/rounds.md), round 15; `tools/handoff.sh` |
 | 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Needs input from AgentMesh: 4, not yet raised with them | [docs/spec.md](docs/spec.md#open-questions) |
 | 16 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
