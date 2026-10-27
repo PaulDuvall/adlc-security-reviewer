@@ -229,6 +229,23 @@ test("SR-22 findReach finds every import, re-export and require, and none a lite
   ]);
 });
 
+test("SR-22 findReach reads every way a `/` or an HTML-like comment may be read, so none hides an import", () => {
+  const js = [
+    ["let of = 2;\nlet x = of / 1, y = import(\"./a.mjs\");\n", "./a.mjs", 2],
+    ["var yield = 2; var x = yield / 1, y = require(\"./b.js\");\n", "./b.js", 1],
+    ["const z = {} / require(\"./c.js\");\n", "./c.js", 1],
+    ["let a = 1; const w = a++ / 1, y = import(\"./d.mjs\");\n", "./d.mjs", 1],
+    ["const v = obj.if(1) / 1, y = import(\"./e.mjs\");\n", "./e.mjs", 1],
+    ["const x = 1 <!-- `\nrequire(\"./f.js\");\n// `\n", "./f.js", 2],
+  ];
+  for (const [text, specifier, line] of js) {
+    const found = findReach(text, "javascript").imports.find((i) => i.specifier === specifier);
+    assert.equal(found?.line, line, text);
+  }
+  assert.deepEqual(findReach("var m = 1; <!-- require(\"./g.js\")\n", "javascript", "x.cjs").imports, [], "in a script, <!-- begins a comment");
+  assert.deepEqual(findReach("if (x) { }\n/'/.test(y); // https://c5.example\n", "javascript").urls, [], "a block's } leaves no doubt");
+});
+
 // secrets.mjs
 
 test("SR-13 SECRETS carries the publisher's credential patterns", () => {

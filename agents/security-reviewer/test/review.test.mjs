@@ -803,6 +803,7 @@ test("SR-22 reads a Python program as Python reads it: its encoding, its strings
     ['import importlib\nimportlib.import_module(("te" "sts.helpers"))\n', "tests.helpers", 2],
     ['import importlib\nimportlib.import_module("\\N{LATIN SMALL LETTER T}ests")\n', '"\\N{LATIN SMALL LETTER T}ests"', 2],
     ["# -*- coding: utf-7 -*-\n+AGk-mport tests.helpers\n", "coding: utf-7", 1],
+    ['import importlib\nimportlib.import_module(package=__package__, name="tests.helpers")\n', "tests.helpers", 2],
   ];
   for (const [text, system, line] of programs) {
     const p = basePackage();
@@ -815,8 +816,10 @@ test("SR-22 reads a Python program as Python reads it: its encoding, its strings
   }
 });
 
-test("SR-22 does not count import text inside a Python f-string or a continued string", () => {
+test("SR-22 passes a Python program that only names an import in a string, or declares UTF-8 by another of Python's names", () => {
   const p = basePackage();
+  p["skills/read-tickets/scripts/sig.py"] = "# coding: utf-8-sig\nimport os\n";
+  p["skills/read-tickets/scripts/us.py"] = "# vim: set fileencoding=US :\nimport os\n";
   p["skills/read-tickets/scripts/text.py"] = [
     's = f"{"; import tests.helpers; "}"',
     't = f"{1 +',

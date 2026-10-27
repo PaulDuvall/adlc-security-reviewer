@@ -149,7 +149,7 @@ EARS form. Each has a test, listed in [traceability.md](traceability.md).
 | SR-05 | If the package directory is missing, or neither `agent-descriptor.json` nor its former name `descriptor.json` parses as JSON, or neither `agent-runtime-requirements.json` nor its former name `install.json` parses as JSON, then the reviewer shall refuse with rule `unreadable`. Where a current and a former name are both present, the current name shall be read. |
 | SR-06 | If the system names in the descriptor's `systems[]` and the runtime requirements' `systems[]` differ as sets, then the reviewer shall refuse with rule `systems-mismatch`, one refusal per system found in only one file. |
 | SR-07 | If a descriptor system has a missing or blank `needs`, then the reviewer shall refuse with rule `no-reason`, naming the system. |
-| SR-08 | If a program contains an `http`, `https`, `ws` or `wss` URL, in any letter case, in executable code, then the reviewer shall refuse with rule `undeclared-reach`, with `system` set to the hostname a WHATWG URL parser gives for it (lowercase, no port), plus `file` and `line`. A URL inside a comment shall not count. A JavaScript comment ends at any ECMAScript line terminator; a Python comment ends at `\n` or `\r`. |
+| SR-08 | If a program contains an `http`, `https`, `ws` or `wss` URL, in any letter case, in executable code, then the reviewer shall refuse with rule `undeclared-reach`, with `system` set to the hostname a WHATWG URL parser gives for it (lowercase, no port), plus `file` and `line`. A URL inside a comment shall not count. A JavaScript comment ends at any ECMAScript line terminator; a Python comment ends at `\n` or `\r`. In a `.cjs` program, `<!--`, and `-->` at a line's start, also begin a line comment, as Node.js reads a script. Where the reviewer cannot tell how a JavaScript program reads (whether a `/` begins a regular expression or a division, or whether a `.js` or `.ts` program is a script), it shall take for code what any reading takes for code, here and in SR-09, SR-17 and SR-22. |
 | SR-09 | If a program reads a credential-like environment variable that is not a bound name, then the reviewer shall refuse with rule `undeclared-reach`, with `system` set to the variable name, plus `file` and `line`. Reads recognized: JavaScript `process.env.NAME`, `process.env["NAME"]`, `process.env['NAME']`, and destructuring from `process.env`; Python `os.environ["NAME"]`, `os.environ.get("NAME")`, `os.getenv("NAME")`. In JavaScript, space or a comment may sit around each `.` of a read. |
 | SR-10 | If the owner's `spend_limit` is missing or malformed per the request schema, then the reviewer shall refuse with rule `spend-limit`. |
 | SR-11 | If a spending system has no `ceilings[]` entry, or a `ceilings[]` entry has an `enforced_by` other than `runtime` or `platform`, or says `platform` for a credential-bearing system, then the reviewer shall refuse with rule `ceiling-missing`, naming the system. Common Agent Specification §12.4 item 4: the scripts reach such a system themselves, so only the runtime can count what it spends. |
@@ -211,9 +211,9 @@ sooner.
    statement cannot be joined to build or deployment records by digest. Whether the request
    should carry the archive digest for the answer to echo. Owner: AgentMesh team.
 8. SR-22 reads `import`, `export … from`, `require` and `importlib.import_module` with a literal
-   name. Other ways to load code, such as `new Worker(…)`, `__import__`, `runpy` or a `.pth`
-   file, are not read, and `not_checked` does not name them. Whether to add them, or name
-   them. Owner: spec owner.
+   name. Other ways to load code, such as `require.call`, `require.apply`, `Reflect.apply`, an
+   alias of `require`, `new Worker(…)`, `__import__`, `runpy` or a `.pth` file, are not read,
+   and `not_checked` does not name them. Whether to add them, or name them. Owner: spec owner.
 9. SR-23 checks that each MCP server is a declared system, by name. It does not check what a
    declared server runs or reaches: a `command` that runs an unshipped file, or a `url` to a host
    no system names, passes. Whether to read the server definitions, and against what, since a
