@@ -26,27 +26,45 @@ export const WRITABLE = [
 ];
 export const writable = (p) => WRITABLE.some((r) => r.test(p));
 
+const fail = (message) => {
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+};
+
 /** The files `git add -A` would commit: every tracked file, and every other file no ignore
  *  rule excludes. A re-lock then commits exactly the files it locks, and a local file that
- *  .gitignore names is never locked. A tracked file deleted from the folder is left out, so
- *  --verify names it removed. */
+ *  .gitignore names is never locked. The ceiling keeps git from reading a repository above
+ *  this one. A name git cannot hand over as UTF-8 is refused, not dropped. */
 function files() {
-  const git = spawnSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: ROOT, encoding: "utf8", maxBuffer: 1 << 26 });
-  if (git.status !== 0) {
-    process.stderr.write(`git could not list the files to lock; run this in a clone of the repository\n${git.stderr || git.error?.message || ""}\n`);
-    process.exit(1);
+  const git = spawnSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+    cwd: ROOT, env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(ROOT) },
+  });
+  if (git.status !== 0) fail(`git could not list the files to lock: ${git.stderr?.toString().trim() || git.error?.message}`);
+  const names = git.stdout.toString();
+  if (!Buffer.from(names).equals(git.stdout)) {
+    fail(`a file name is not UTF-8; rename it, then lock or verify:\n${names.split("\0").filter((p) => p.includes(String.fromCharCode(0xfffd))).join("\n")}`);
   }
-  return [...new Set(git.stdout.split("\0"))].filter((p) => p && p !== LOCK && lstatSync(join(ROOT, p), { throwIfNoEntry: false })).sort();
+  return names.split("\0").filter((p) => p && p !== LOCK && present(p)).sort();
 }
 
-/** A file's digest. A symbolic link's is of the path it holds, as git stores it. A folder in
- *  the list is a repository inside this one, whose files git does not commit. */
+/** Whether a listed path is in the folder. A tracked file that is missing, or under a folder
+ *  now replaced by a file, is not, as git counts it deleted; --verify then names it removed. */
+function present(p) {
+  try {
+    lstatSync(join(ROOT, p));
+    return true;
+  } catch (e) {
+    if (e.code === "ENOENT" || e.code === "ENOTDIR") return false;
+    throw e;
+  }
+}
+
+/** A file's digest. A symbolic link's is of the path it holds, as git stores it. */
 function digest(p) {
   const full = join(ROOT, p);
   const entry = lstatSync(full);
   if (entry.isDirectory()) {
-    process.stderr.write(`${p} is a git repository inside this one; move it out, then lock or verify\n`);
-    process.exit(1);
+    fail(`${p} is a folder where git lists one entry: a repository inside this one, or a file replaced by a folder. Move it out or restore it, then lock or verify`);
   }
   return createHash("sha256").update(entry.isSymbolicLink() ? readlinkSync(full) : readFileSync(full)).digest("hex");
 }
