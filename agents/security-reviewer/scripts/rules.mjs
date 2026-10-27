@@ -1,7 +1,8 @@
 // Check the declaration and the owner's limits against what the package holds (SR-06 to
 // SR-14, SR-22, SR-23), and say what was accepted knowingly (SR-17) and what was not
 // checked (SR-18).
-import { posix } from "node:path";
+import { dirname, isAbsolute, posix, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { findReach, isCredentialName, languageOf } from "./reach.mjs";
 import { ships } from "./read-package.mjs";
 import { secretsIn } from "./secrets.mjs";
@@ -184,35 +185,188 @@ function dependencyUnpinned(pkg) {
   return out;
 }
 
+// What a program loads (SR-22)
+
+// Node tries a name as written, then with each ending, then as a folder: its package.json
+// `main`, then its index. The ES module and TypeScript endings cover a bundler's reading too.
+const ENDINGS = ["", ".js", ".json", ".node", ".mjs", ".cjs", ".ts"];
+const INDEXES = ENDINGS.slice(1).map((e) => `index${e}`);
+const RELATIVE = /^\.\.?(?:[/\\]|$)/;
+// A built-in module, or a URL that SR-08 refuses already.
+const NOT_FILES = /^(?:node|https?|wss?):/i;
+// A scheme (file:, data:, a drive such as C:) or an absolute path: never a file the package ships.
+const ABSOLUTE = /^(?:[a-zA-Z][a-zA-Z\d+.-]*:|[/\\])/;
 const UNREAD_MODULES = new Set(["test", "tests"]);
 
-/** Whether a program loads code this review does not read: a JavaScript relative specifier
- *  that leaves the package or names a file that does not ship, or a Python relative import
- *  from a test module. */
-function loadsUnread(path, language, specifier) {
-  if (language === "python") return specifier.replace(/^\.+/, "").split(".").some((part) => UNREAD_MODULES.has(part));
-  const resolved = posix.normalize(posix.join(posix.dirname(path), specifier));
-  return resolved === ".." || resolved.startsWith("../") || !ships(resolved);
+const shippedPaths = new WeakMap();
+const shippedSet = (pkg) => {
+  if (!shippedPaths.has(pkg)) shippedPaths.set(pkg, new Set(pkg.files.map((f) => f.path)));
+  return shippedPaths.get(pkg);
+};
+const under = (dir, name) => (dir ? `${dir}/${name}` : name);
+const leavesPackage = (path) => path === ".." || path.startsWith("../");
+const packagePath = (dir, target) => posix.normalize(posix.join(dir || ".", target)).replace(/\/+$/, "").replace(/^\.$/, "");
+
+/** The shipped package.json in a package folder, parsed, or null. */
+function manifest(pkg, dir) {
+  const file = pkg.files.find((f) => f.path === under(dir, "package.json"));
+  if (!file) return null;
+  try {
+    const value = JSON.parse(file.bytes.toString("utf8"));
+    return isObject(value) ? value : null;
+  } catch { return null; }
+}
+
+/** The nearest shipped package.json at or above a program's folder, with its folder. */
+function nearestManifest(pkg, program) {
+  for (let dir = posix.dirname(program); ; dir = posix.dirname(dir)) {
+    const folder = dir === "." ? "" : dir;
+    const found = manifest(pkg, folder);
+    if (found) return { dir: folder, manifest: found };
+    if (!folder) return null;
+  }
+}
+
+/** Whether the file Node loads for a package path is one this review read. It tries each
+ *  candidate in turn: the first that ships passes; one outside the package, or one that would
+ *  not ship, fails; and finding none fails too, since an absent name may be a file under a
+ *  folder link, or in another letter case, neither of which the review reads. */
+function loadsShipped(pkg, path, folderOnly) {
+  if (leavesPackage(path)) return false;
+  const asFile = (p) => ENDINGS.map((e) => p + e);
+  const main = manifest(pkg, path)?.main;
+  const target = typeof main === "string" && main.trim() ? packagePath(path, main) : null;
+  const candidates = [
+    ...(folderOnly || !path ? [] : asFile(path)),
+    ...(target === null ? [] : [...asFile(target), ...INDEXES.map((i) => under(target, i))]),
+    ...INDEXES.map((i) => under(path, i)),
+  ];
+  const shipped = shippedSet(pkg);
+  for (const c of candidates) {
+    if (leavesPackage(c)) return false;
+    if (shipped.has(c)) return true;
+    if (!ships(c)) return false;
+  }
+  return false;
+}
+
+/** The strings a package.json `imports` or `exports` map gives for a key, through any
+ *  conditions and `*` patterns. Null when it has no entry for the key. */
+function mapTargets(map, key) {
+  const strings = (v) => (typeof v === "string" ? [v] : Array.isArray(v) ? v.flatMap(strings)
+    : isObject(v) ? Object.values(v).flatMap(strings) : []);
+  if (!isObject(map)) return null;
+  if (Object.hasOwn(map, key)) return strings(map[key]);
+  const found = [];
+  for (const k of Object.keys(map)) {
+    const [before, after, more] = k.split("*");
+    if (after === undefined || more !== undefined || key.length < k.length - 1 || !key.startsWith(before) || !key.endsWith(after)) continue;
+    const part = key.slice(before.length, key.length - after.length);
+    found.push(...strings(map[k]).map((t) => t.replaceAll("*", part)));
+  }
+  return found.length ? found : null;
+}
+
+/** Whether every file a package.json maps a key to is one this review read. A target that is
+ *  not `./…` names a package, or is one Node refuses to load. */
+const targetsShipped = (pkg, dir, targets) => targets.filter((t) => t.startsWith("./"))
+  .every((t) => loadsShipped(pkg, packagePath(dir, t), t.endsWith("/")));
+
+/** The package path a relative specifier names, and whether it names a folder. Null when Node
+ *  could not turn it into a path, so that it loads nothing. */
+function relativeTarget(pkg, program, value, esm) {
+  const from = resolve(pkg.dir, program);
+  let abs;
+  let written = value.replaceAll("\\", "/");
+  if (esm) {
+    // An ES module specifier is a URL: escapes decoded, `?` and `#` dropped, `%2e%2e` a step up.
+    try {
+      const url = new URL(value, pathToFileURL(from));
+      abs = fileURLToPath(url);
+      written = url.pathname;
+    } catch { return null; }
+  } else abs = resolve(dirname(from), written);
+  const rel = relative(pkg.dir, abs).split(sep).join("/");
+  if (isAbsolute(rel)) return { path: "..", folderOnly: true };
+  return { path: rel, folderOnly: !rel || /(?:^|\/)\.{0,2}$/.test(written) };
+}
+
+/** Whether a JavaScript import loads code this review does not read. */
+function jsLoadsUnread(pkg, program, { value, esm }) {
+  if (RELATIVE.test(value)) {
+    const target = relativeTarget(pkg, program, value, esm);
+    return target !== null && !loadsShipped(pkg, target.path, target.folderOnly);
+  }
+  if (NOT_FILES.test(value)) return false;
+  if (ABSOLUTE.test(value)) return true;
+  const scope = nearestManifest(pkg, program);
+  if (value.startsWith("#")) {
+    // A subpath import maps through the nearest package.json; with none here, Node looks
+    // above the package, which the review does not read.
+    if (!scope) return true;
+    const targets = mapTargets(scope.manifest.imports, value);
+    return targets !== null && !targetsShipped(pkg, scope.dir, targets);
+  }
+  // A package that names itself loads its own files through its `exports`.
+  const name = scope?.manifest.name;
+  if (typeof name !== "string" || scope.manifest.exports === undefined || (value !== name && !value.startsWith(`${name}/`))) return false;
+  const exports = scope.manifest.exports;
+  const map = isObject(exports) && Object.keys(exports).some((k) => k.startsWith(".")) ? exports : { ".": exports };
+  const targets = mapTargets(map, value === name ? "." : `.${value.slice(name.length)}`);
+  return targets !== null && !targetsShipped(pkg, scope.dir, targets);
+}
+
+const parts = (module) => module.normalize("NFKC").replace(/^\.+/, "").split(".");
+const unreadModule = (module) => parts(module).some((p) => UNREAD_MODULES.has(p));
+
+/** The Python module a test or tests part makes unread: the module path, or the module path
+ *  with a name its `from` imports, since that name may be a submodule. Null when none. */
+function pythonUnread({ specifier, names }) {
+  if (unreadModule(specifier)) return specifier;
+  const name = names.find(unreadModule);
+  return name === undefined ? null : `${specifier}${specifier.endsWith(".") ? "" : "."}${name}`;
 }
 
 function unreadCode(pkg) {
-  return programs(pkg).flatMap((p) => p.reach.imports
-    .filter((i) => loadsUnread(p.path, languageOf(p.path), i.specifier))
-    .map((i) => refuse("unread-code", `the program loads ${i.specifier}, which this review does not read`,
-      { system: i.specifier, file: p.path, line: i.line })));
+  const out = [];
+  for (const p of programs(pkg)) {
+    const python = languageOf(p.path) === "python";
+    for (const i of p.reach.imports) {
+      const system = python ? pythonUnread(i) : jsLoadsUnread(pkg, p.path, i) ? i.specifier : null;
+      if (system !== null) {
+        out.push(refuse("unread-code", `the program loads ${system}, which this review does not read`,
+          { system, file: p.path, line: i.line }));
+      }
+    }
+  }
+  return out;
 }
 
+// Where a host finds a package's MCP servers: an mcp.json (Agent Plugins) or .mcp.json (Claude
+// Code) at the root, whose mcpServers must be a map, and a plugin.json whose mcpServers, when
+// present, must be one too, since a path or a bundle there is not read.
+const MCP_FILES = ["mcp.json", ".mcp.json"];
+const PLUGIN_FILES = ["plugin.json", ".claude-plugin/plugin.json"];
+
 function mcpServers(pkg) {
-  const file = pkg.files.find((f) => f.path === "mcp.json");
-  if (!file) return [];
-  let config;
-  try { config = JSON.parse(file.bytes.toString("utf8")); } catch { config = undefined; }
-  if (!isObject(config) || (config.mcpServers !== undefined && !isObject(config.mcpServers))) {
-    return [refuse("unreadable", "mcp.json is not a JSON object whose mcpServers is an object", { file: "mcp.json" })];
-  }
   const declared = new Set(descriptorSystems(pkg).map((s) => s.name));
-  return Object.keys(config.mcpServers ?? {}).filter((name) => !declared.has(name)).map((name) => refuse("undeclared-reach",
-    `mcp.json names the server ${name}, which the descriptor does not declare`, { system: name, file: "mcp.json" }));
+  const out = [];
+  for (const path of [...MCP_FILES, ...PLUGIN_FILES]) {
+    const file = pkg.files.find((f) => f.path === path);
+    if (!file) continue;
+    let config;
+    try { config = JSON.parse(file.bytes.toString("utf8")); } catch { config = undefined; }
+    const plugin = PLUGIN_FILES.includes(path);
+    // A plugin.json that is not JSON is read as absent (U4), and may leave mcpServers out.
+    if (plugin && (!isObject(config) || config.mcpServers === undefined)) continue;
+    if (!isObject(config) || !isObject(config.mcpServers)) {
+      out.push(refuse("unreadable", `${path} is not a JSON object whose mcpServers is a map of servers by name`, { file: path }));
+      continue;
+    }
+    out.push(...Object.keys(config.mcpServers).filter((name) => !declared.has(name)).map((name) => refuse("undeclared-reach",
+      `${path} names the MCP server ${name}, which the descriptor does not declare`, { system: name, file: path })));
+  }
+  return out;
 }
 
 /** Every refusal that applies to a readable package, for the owner given. Empty when none. */
@@ -238,8 +392,13 @@ export function credentialTexts(pkg) {
 
 // What was accepted knowingly
 
-const leaves = (pkg, name) => descriptorSystems(pkg).some((s) => s.name === name && s.leaves === true)
-  || requiredSystems(pkg).some((s) => s.name === name && s.leaves === true);
+/** Whether content leaves for a system, as the descriptor and the runtime requirements state
+ *  it: undefined where neither does (SR-16). Any stated value but false counts as leaving. */
+export function leavesFor(pkg, name) {
+  const stated = [...descriptorSystems(pkg), ...requiredSystems(pkg)]
+    .filter((s) => s.name === name && s.leaves !== undefined && s.leaves !== null).map((s) => s.leaves);
+  return stated.length ? stated.some((v) => v !== false) : undefined;
+}
 
 /** The reach a passed package keeps, each a thing a person should know they accepted. */
 export function acceptedKnowingly(pkg) {
@@ -249,7 +408,7 @@ export function acceptedKnowingly(pkg) {
       out.push({ what: `${s.name} is reached with access ${s.access ?? "unstated"}, not read`, system: s.name,
         why: "the declaration asks for it, and the agent can change what it holds" });
     }
-    if (leaves(pkg, s.name)) {
+    if (leavesFor(pkg, s.name)) {
       out.push({ what: `content leaves for ${s.name}`, system: s.name,
         why: "the declaration says so, and what is sent there is out of the owner's hands" });
     }
@@ -277,7 +436,7 @@ export function acceptedKnowingly(pkg) {
 
 const ALWAYS_NOT_CHECKED = [
   "known vulnerabilities in dependencies",
-  "destinations computed at runtime, such as a URL or variable name built from a value",
+  "destinations and module paths computed at runtime, such as a URL, variable name or module path built from a value",
   "whether each reason is sufficient; a person decides that",
   "behavior when running; the programs were read, not run",
   "files under test, tests, node_modules and .git directories, and files named *.test.*, which were not read",

@@ -1,5 +1,5 @@
 // Write the security statement for a package that passed (SR-16 to SR-18).
-import { acceptedKnowingly, limitOf, notChecked, ownerNumber } from "./rules.mjs";
+import { acceptedKnowingly, leavesFor, limitOf, notChecked, ownerNumber } from "./rules.mjs";
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const list = (v) => (Array.isArray(v) ? v.filter(isObject) : []);
@@ -21,8 +21,8 @@ function reachesOf(pkg) {
       kind: r.kind ?? null,
       credential: r.credential ?? null,
     };
-    const stated = [s.leaves, r.leaves].filter((v) => typeof v === "boolean");
-    if (stated.length) entry.leaves = stated.includes(true);
+    const leaves = leavesFor(pkg, s.name);
+    if (leaves !== undefined) entry.leaves = leaves;
     return entry;
   });
 }
