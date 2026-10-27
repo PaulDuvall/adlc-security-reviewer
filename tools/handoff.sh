@@ -7,10 +7,12 @@
 #
 # Reopening the Test stage later, as the spec owner: on a branch, change the locked files, then
 #   node tools/removal-check.mjs && node tools/lock.mjs --write && git add -A && git commit -m "Re-lock"
-# merge it into main by pull request (`git add -A` takes new files too, which LOCK.json lists),
-# then on main lift the "handoff tag is fixed" ruleset, run
-#   git tag -f handoff && git push -f origin handoff
-# and restore the ruleset. CI's diff and lock steps fail on the pull request until the tag moves.
+# (`git add -A` takes new files too, which LOCK.json lists). Lift the "handoff tag is fixed"
+# ruleset, move the tag to that commit and restore the ruleset:
+#   git tag -fa handoff -m "Test stage reopen" && git push -f origin handoff
+# CI's diff and lock steps compare with the tag, so they pass on the branch's pull request only
+# once it has moved; main's ruleset then lets the pull request merge. Commits after the re-lock
+# may touch only the Code stage's paths.
 set -euo pipefail
 
 repo="${1:?usage: bash tools/handoff.sh <owner>/<repo> [--public]}"
