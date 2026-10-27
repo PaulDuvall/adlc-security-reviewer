@@ -7,7 +7,7 @@ suite must pass every test named here, by name, and no other.
 
 | Req | Tests | Program | Conformance harness | Other check |
 |---|---|---|---|---|
-| SR-01 | SR-01 writes one JSON object on one line, ends with a newline, and exits 0<br>SR-01 answers once, on one line, for a Python program cut off inside an f-string field, a format spec or a string<br>SR-01 still writes one JSON object for a request too deep to finish, refused as unreadable with the package it read<br>SR-01 answers for a program with thousands of uncertain points, as one JSON object | review.mjs |  |  |
+| SR-01 | SR-01 writes one JSON object on one line, ends with a newline, and exits 0<br>SR-01 answers once, on one line, for a Python program cut off inside an f-string field, a format spec or a string<br>SR-01 still writes one JSON object for a request too deep to finish, refused as unreadable with the package it read<br>SR-01 answers for a program with thousands of uncertain points, as one JSON object<br>SR-01 answers for a program with a long run of space after a name, as one JSON object | review.mjs |  |  |
 | SR-02 | SR-02 refuses a request that is not JSON<br>SR-02 refuses a request that does not carry review v1<br>SR-02 refuses a request that is JSON but not an object, is not JSON, or carries another review, each with a why<br>SR-02 refuses a review that names no package, or a blank or non-string one, and never reviews its working directory instead | review.mjs |  |  |
 | SR-03 | SR-03 declines a request to bind the package's credential<br>SR-03 declines every ask other than review | review.mjs | case 4 |  |
 | SR-04 | SR-04 leaves every file in the package as it was, whatever the answer | all (runs read-only) |  | CI runs under `--permission` with read-only files |

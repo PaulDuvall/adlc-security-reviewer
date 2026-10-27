@@ -2073,3 +2073,11 @@ test("SR-13 withholds credentials that overlap or touch as one span, leaving no 
   assert.ok(rules(answer).includes("systems-mismatch"), JSON.stringify(answer.refusals));
   for (const part of [seed.slice(0, 20), seed.slice(20), seed.slice(38)]) assert.ok(!stdout.toLowerCase().includes(part.toLowerCase()), `leaks ${part}`);
 });
+
+test("SR-01 answers for a program with a long run of space after a name, as one JSON object", () => {
+  const p = basePackage();
+  p["skills/read-tickets/scripts/space.mjs"] = `export const a = process${" ".repeat(200000)};\nexport const b = x${"\t".repeat(200000)};\n`;
+  const r = review(p);
+  assert.equal(r.status, 0, r.stderr.slice(0, 300));
+  assert.equal(r.answer?.result, "passed", JSON.stringify(r.answer?.refusals ?? null));
+});
