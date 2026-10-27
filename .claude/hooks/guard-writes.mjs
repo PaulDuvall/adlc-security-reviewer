@@ -26,7 +26,7 @@ for (const p of paths) {
   const rel = relative(root, isAbsolute(p) ? p : resolve(root, p)).split(sep).join("/");
   if (rel.startsWith("..") || !writable(rel)) {
     process.stderr.write(
-      `guard-writes: ${rel} is locked. The Code stage may write only agents/security-reviewer/scripts/, docs/rounds.md and README.md. `
+      `guard-writes: ${rel} is locked. The Code stage may write only agents/security-reviewer/scripts/*.mjs, docs/rounds.md and README.md. `
       + "If a test or the statement seems wrong, record the conflict in docs/rounds.md and stop.\n",
     );
     process.exit(2);

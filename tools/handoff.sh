@@ -4,6 +4,11 @@
 # and protects `main` and the tag. Runs once. Moving the tag later is the spec owner's act.
 #
 # Usage: bash tools/handoff.sh <owner>/<repo> [--public]
+#
+# Reopening the Test stage later, as the spec owner: change the locked files, then run
+#   node tools/removal-check.mjs && node tools/lock.mjs --write && git commit -am "Re-lock"
+# lift the "handoff tag is fixed" ruleset, run git tag -f handoff && git push -f origin handoff,
+# and restore the ruleset.
 set -euo pipefail
 
 repo="${1:?usage: bash tools/handoff.sh <owner>/<repo> [--public]}"
@@ -13,8 +18,8 @@ cd "$(dirname "$0")/.."
 
 command -v gh >/dev/null || { echo "gh is required: https://cli.github.com"; exit 1; }
 gh auth status >/dev/null 2>&1 || { echo "gh is not signed in: run gh auth login"; exit 1; }
-node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' \
-  || { echo "Node 22 or later is required"; exit 1; }
+node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 13) ? 0 : 1)' \
+  || { echo "Node 22.13 or later is required: the suite runs the reviewer under --permission"; exit 1; }
 if git rev-parse --git-dir >/dev/null 2>&1 && git rev-parse -q --verify refs/tags/handoff >/dev/null; then
   echo "the handoff tag already exists; this script runs once"; exit 1
 fi
@@ -52,9 +57,12 @@ gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "tag
   ]
 }
 JSON
+# A merge needs one approval from someone other than its author (GitHub never counts the author's
+# own) and the code owner's for locked paths. 15368 is the GitHub Actions app, so only a workflow
+# run can satisfy the verify check.
 gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "main ruleset: active" || echo "main ruleset: NOT created (rulesets on private repositories may need a paid plan); protect main by hand"
 {
-  "name": "main takes green pull requests",
+  "name": "main takes green, approved pull requests",
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
@@ -62,12 +70,12 @@ gh api -X POST "repos/$repo/rulesets" --input - >/dev/null <<'JSON' && echo "mai
     { "type": "deletion" },
     { "type": "non_fast_forward" },
     { "type": "pull_request", "parameters": {
-        "dismiss_stale_reviews_on_push": false, "require_code_owner_review": false,
-        "require_last_push_approval": false, "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false, "require_code_owner_review": true,
+        "require_last_push_approval": true, "required_approving_review_count": 1,
         "required_review_thread_resolution": false } },
     { "type": "required_status_checks", "parameters": {
         "strict_required_status_checks_policy": true,
-        "required_status_checks": [{ "context": "verify" }] } }
+        "required_status_checks": [{ "context": "verify", "integration_id": 15368 }] } }
   ]
 }
 JSON

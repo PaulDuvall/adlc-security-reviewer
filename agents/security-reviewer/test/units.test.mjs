@@ -3,10 +3,14 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { test } from "node:test";
-import { readPackage, packageDigest, ships } from "../scripts/read-package.mjs";
-import { findReach, isCredentialName, languageOf } from "../scripts/reach.mjs";
-import { SECRETS, carriesASecret } from "../scripts/secrets.mjs";
-import { FAKE, basePackage, expectedDigest, writePackage } from "./helpers.mjs";
+import { CREDENTIALS, FAKE, basePackage, expectedDigest, writePackage } from "./helpers.mjs";
+
+// Frozen before the programs load, so a program under test cannot replace the assertions it
+// is checked with.
+Object.freeze(assert);
+const { readPackage, packageDigest, ships } = await import("../scripts/read-package.mjs");
+const { findReach, isCredentialName, languageOf } = await import("../scripts/reach.mjs");
+const { SECRETS, carriesASecret } = await import("../scripts/secrets.mjs");
 
 const hosts = (r) => r.urls.map((u) => u.host);
 const names = (r) => r.env.map((e) => e.name);
@@ -31,19 +35,6 @@ test("SR-05 readPackage reads the descriptor, the runtime requirements and the s
   assert.equal(pkg.digest, expectedDigest(dir));
 });
 
-test("SR-05 readPackage prefers the current names and falls back to the former ones", () => {
-  const p = basePackage();
-  p["descriptor.json"] = { ...p["agent-descriptor.json"], agent_version: "9.9.9" };
-  assert.equal(readPackage(writePackage(p)).descriptor.agent_version, "0.1.0");
-
-  const q = basePackage();
-  q["descriptor.json"] = q["agent-descriptor.json"];
-  q["install.json"] = q["agent-runtime-requirements.json"];
-  q["agent-descriptor.json"] = null;
-  q["agent-runtime-requirements.json"] = null;
-  const pkg = readPackage(writePackage(q));
-  assert.deepEqual(pkg.names, { descriptor: "descriptor.json", requirements: "install.json" });
-});
 
 test("SR-05 readPackage throws an error with code unreadable", () => {
   for (const dir of [join(writePackage(basePackage()), "nope"), writePackage({ ...basePackage(), "agent-descriptor.json": "{" })]) {
@@ -58,6 +49,13 @@ test("SR-19 packageDigest follows its definition", () => {
   ];
   const lines = `a.txt\0${"a".repeat(64)}\nb.txt\0${"b".repeat(64)}\n`;
   assert.equal(packageDigest(files), `sha256:${createHash("sha256").update(lines).digest("hex")}`);
+
+  // U+FF21 sorts before U+1F600 by UTF-8 bytes, and after it by UTF-16 code units.
+  const wide = `${String.fromCodePoint(0xff21)}.txt`;
+  const astral = `${String.fromCodePoint(0x1f600)}.txt`;
+  const odd = [{ path: astral, sha256: "c".repeat(64) }, { path: wide, sha256: "d".repeat(64) }];
+  const bytewise = `${wide}\0${"d".repeat(64)}\n${astral}\0${"c".repeat(64)}\n`;
+  assert.equal(packageDigest(odd), `sha256:${createHash("sha256").update(bytewise).digest("hex")}`, "paths sort by bytes");
 });
 
 test("ships excludes test folders, node_modules, .git and test files", () => {
@@ -108,6 +106,30 @@ test("SR-08 findReach finds URLs in Python code and not in comments", () => {
   ]);
 });
 
+test("SR-08 findReach ends comments where each language ends them, and keeps strings and regular expressions whole", () => {
+  const ls = String.fromCharCode(0x2028);
+  const js = [
+    ["const d = a / b; // https://c1.example", []],
+    ["if (x) /'/.test(y); // https://c2.example", []],
+    ["{ }\n/'/.test(y); // https://c3.example", []],
+    ['#!/usr/bin/env node\nconst u = "https://h1.example";', [{ host: "h1.example", line: 2 }]],
+    ['const s = "a \\" // https://h2.example";', [{ host: "h2.example", line: 1 }]],
+    ["const t = `${`https://h3.example`}`;", [{ host: "h3.example", line: 1 }]],
+    ['const s = "see:\\nhttps://h4.example";', [{ host: "h4.example", line: 1 }]],
+    ['const u = "HTTPS://H5.Example.COM:8443/x";', [{ host: "h5.example.com", line: 1 }]],
+    [`// c${ls}fetch("https://h6.example");`, [{ host: "h6.example", line: 1 }]],
+    ['// c\rfetch("https://h7.example");', [{ host: "h7.example", line: 1 }]],
+    ['const u = "https://redis_cache:6379/";', [{ host: "redis_cache", line: 1 }]],
+  ];
+  for (const [text, urls] of js) assert.deepEqual(findReach(text, "javascript").urls, urls, text);
+  const py = [
+    ['s = "# not a comment https://p1.example"', [{ host: "p1.example", line: 1 }]],
+    ['# c\ru = "https://p2.example"', [{ host: "p2.example", line: 1 }]],
+    ["x = 1  # https://no.example", []],
+  ];
+  for (const [text, urls] of py) assert.deepEqual(findReach(text, "python").urls, urls, text);
+});
+
 test("SR-09 findReach finds every environment read form in JavaScript", () => {
   const text = [
     "const a = process.env.ALPHA;",
@@ -115,6 +137,9 @@ test("SR-09 findReach finds every environment read form in JavaScript", () => {
     "const c = process.env['CHARLIE'];",
     "const { DELTA, ECHO: echo } = process.env;",
     "// process.env.IN_A_COMMENT",
+    "const f = process",
+    "  .env.FOXTROT;",
+    "const g = process/* c */.env.GOLF;",
     "",
   ].join("\n");
   assert.deepEqual(findReach(text, "javascript").env, [
@@ -123,6 +148,8 @@ test("SR-09 findReach finds every environment read form in JavaScript", () => {
     { name: "CHARLIE", line: 3 },
     { name: "DELTA", line: 4 },
     { name: "ECHO", line: 4 },
+    { name: "FOXTROT", line: 6 },
+    { name: "GOLF", line: 8 },
   ]);
 });
 
@@ -143,15 +170,18 @@ test("SR-17 findReach finds process starts", () => {
   assert.equal(findReach('const cp = require("child_process");\n', "javascript").spawns.length, 1);
   assert.equal(findReach("import subprocess\n", "python").spawns.length, 1);
   assert.equal(findReach("import os\nos.system('ls')\n", "python").spawns.length, 1);
+  assert.equal(findReach("if True: import subprocess\n", "python").spawns.length, 1);
+  assert.equal(findReach("x = 1; import subprocess\n", "python").spawns.length, 1);
+  assert.equal(findReach('import os; s = "subprocess"\n', "python").spawns.length, 0);
   assert.equal(findReach("export const x = 1;\n", "javascript").spawns.length, 0);
   assert.deepEqual(hosts(findReach("export const x = 1;\n", "javascript")), []);
 });
 
 test("isCredentialName reads the parts of a name", () => {
-  for (const n of ["TEXT_API_KEY", "GITHUB_TOKEN", "DB_PASSWORD", "my_secret", "GH_PAT", "AWS_CREDENTIALS", "BASIC_AUTH", "PASSWD"]) {
+  for (const n of ["TEXT_API_KEY", "GITHUB_TOKEN", "DB_PASSWORD", "my_secret", "GH_PAT", "AWS_CREDENTIALS", "BASIC_AUTH", "PASSWD", "TOKEN_FILE", "AWS_CREDENTIAL"]) {
     assert.equal(isCredentialName(n), true, n);
   }
-  for (const n of ["AUTHOR_NAME", "TOKENIZER_PATH", "KEYBOARD_LAYOUT", "LOG_LEVEL", "TEXT_MODEL", "DRAFT_HOST_URL"]) {
+  for (const n of ["AUTHOR_NAME", "TOKENIZER_PATH", "KEYBOARD_LAYOUT", "LOG_LEVEL", "TEXT_MODEL", "DRAFT_HOST_URL", "API-KEY"]) {
     assert.equal(isCredentialName(n), false, n);
   }
 });
@@ -164,6 +194,13 @@ test("SR-13 SECRETS carries the publisher's credential patterns", () => {
     assert.equal(typeof s.what, "string");
     assert.ok(s.find instanceof RegExp);
   }
+  assert.deepEqual([...new Set(SECRETS.map((s) => s.what))].sort(), [
+    "a PKCS#12 keystore", "a private key", "a service-account key", "an AWS access key", "an AWS secret key", "an NKey seed",
+  ]);
+});
+
+test("SR-13 carriesASecret names each kind in the publisher's list", () => {
+  for (const c of CREDENTIALS()) assert.equal(carriesASecret(Buffer.from(c.text)), c.what, c.what);
 });
 
 test("SR-13 carriesASecret names the kind of credential, and passes ordinary text", () => {

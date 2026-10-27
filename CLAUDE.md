@@ -6,11 +6,11 @@ the role `code writer` at agentroles.ai.
 
 ## Your inputs, read-only
 
-- `docs/spec.md`: the statement of the job, requirements SR-01 to SR-21.
+- `docs/spec.md`: the statement of the job, requirements SR-01 to SR-23.
 - `docs/traceability.md`: requirement to test to program.
 - `agents/security-reviewer/test/`: the suite, its helpers and the empty stand-ins.
 - `agents/security-reviewer/*.json`, `skills/`: the package declaration.
-- `conformance/`, `tools/`, `.claude/`, `.github/`, `package.json`, this file.
+- Everything else outside the paths below.
 
 A hook blocks edits to these paths. `tools/lock.mjs --verify` and CI catch any other route.
 A test that cannot pass without changing the statement or a test is a **conflict**. Stop and
@@ -18,8 +18,9 @@ report it in `docs/rounds.md`. Never resolve it yourself.
 
 ## What you may write
 
-- `agents/security-reviewer/scripts/`: the six programs. Replace each stand-in. Keep every
-  exported name the stand-in has. You may add modules here.
+- `agents/security-reviewer/scripts/`: the six programs, as `.mjs` files. Keep the exported
+  names the unit tests import; the other stand-ins' names are the design's split. Add no
+  module: the locked `plugin.json` lists the six.
 - `docs/rounds.md`: your record of each round.
 - `README.md`: status lines only.
 
@@ -40,10 +41,15 @@ report it in `docs/rounds.md`. Never resolve it yourself.
 | `npm test` | lock holds, then the full suite |
 | `npm run conformance` | the §34.4 behavioral cases |
 | `npm run removal` | suite fails against stand-ins; notices each program removed |
-| `npm run self-review` | the reviewer passes its own package |
-| `npm run verify` | all four |
+| `npm run verify` | all three |
+
+## Verifying your work
+
+Run `npm run verify` before reporting any task done, and paste its output. Healthy output shows
+`lock holds: N files unchanged`, `# fail 0`, `4 of 4 cases pass`, and
+`pass  against empty stand-ins: 0 of N tests pass (must be 0)`.
 
 ## Done when
 
-All four commands exit 0, no locked file changed, and `docs/rounds.md` records every round:
+All three commands exit 0, no locked file changed, and `docs/rounds.md` records every round:
 what failed, what changed, and anything the statement did not settle.

@@ -1,0 +1,3 @@
+# Every file is checked out with LF endings, so the lock and the package digest, which hash
+# bytes, give the same answer on every platform.
+* text=auto eol=lf

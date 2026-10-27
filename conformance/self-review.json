@@ -1,9 +1,0 @@
-{
-  "review": "v1",
-  "ask": "review",
-  "package": "agents/security-reviewer",
-  "owner": {
-    "spend_limit": { "most_micro": 0, "currency": "USD", "per": "day" },
-    "ceilings": []
-  }
-}

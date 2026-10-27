@@ -55,7 +55,7 @@ reason and says so under `not_checked`.
 | `docs/rounds.md` | Code | code writer |
 
 ```bash
-npm run verify   # suite, conformance cases, removal check, self-review
+npm run verify   # suite, conformance cases, removal check
 ```
 
-Node 22 or later. No dependencies.
+Node 22.13 or later. No dependencies.

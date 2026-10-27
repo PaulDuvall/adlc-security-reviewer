@@ -8,6 +8,7 @@
 //   node tools/lock.mjs --verify   check it (every round, and in CI)
 //
 // Node 22 or later, nothing else.
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
@@ -18,7 +19,7 @@ const LOCK = "LOCK.json";
 
 /** What the Code stage may write. Everything else is locked. */
 export const WRITABLE = [
-  /^agents\/security-reviewer\/scripts\//,
+  /^agents\/security-reviewer\/scripts\/[a-z0-9-]+\.mjs$/,
   /^docs\/rounds\.md$/,
   /^README\.md$/,
 ];
@@ -56,20 +57,25 @@ if (mode === "imported") {
   writeFileSync(join(ROOT, LOCK), `${JSON.stringify({ format: "lock-v1", files: entries }, null, 2)}\n`);
   process.stdout.write(`locked ${Object.keys(entries).length} files\n`);
 } else if (mode === "--verify") {
-  let recorded;
-  try { recorded = JSON.parse(readFileSync(join(ROOT, LOCK), "utf8")).files; } catch {
+  let raw, recorded;
+  try { raw = readFileSync(join(ROOT, LOCK), "utf8"); recorded = JSON.parse(raw).files; } catch {
     process.stderr.write(`${LOCK} is missing or not JSON; nothing can be verified\n`);
     process.exit(1);
   }
   const now = locked();
   const problems = [];
+  // LOCK.json is not in its own list, so it is checked against the copy at the handoff tag:
+  // a lock rewritten by hand would otherwise vouch for whatever it was rewritten to match.
+  const tagged = spawnSync("git", ["show", `handoff:${LOCK}`], { cwd: ROOT, encoding: "utf8" });
+  if (tagged.status !== 0) process.stdout.write(`note: no handoff tag here, so ${LOCK} itself is not checked\n`);
+  else if (tagged.stdout !== raw) problems.push(`changed: ${LOCK} differs from the one at the handoff tag`);
   for (const [p, h] of Object.entries(recorded)) {
     if (!(p in now)) problems.push(`removed: ${p}`);
     else if (now[p] !== h) problems.push(`changed: ${p}`);
   }
   for (const p of Object.keys(now)) if (!(p in recorded)) problems.push(`added outside the Code stage's paths: ${p}`);
   if (problems.length) {
-    process.stderr.write(`The handoff lock does not hold. The Code stage may write only:\n  agents/security-reviewer/scripts/\n  docs/rounds.md\n  README.md\n${problems.map((x) => `  ${x}`).join("\n")}\n`);
+    process.stderr.write(`The handoff lock does not hold. The Code stage may write only:\n  agents/security-reviewer/scripts/*.mjs\n  docs/rounds.md\n  README.md\n${problems.map((x) => `  ${x}`).join("\n")}\n`);
     process.exit(1);
   }
   process.stdout.write(`lock holds: ${Object.keys(recorded).length} files unchanged\n`);

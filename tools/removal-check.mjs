@@ -30,7 +30,8 @@ function copyRepo() {
 
 function suite(dir) {
   const r = spawnSync(process.execPath, ["--test", "--test-reporter=tap", `${AGENT}/test/*.test.mjs`], { cwd: dir, encoding: "utf8", timeout: 600000 });
-  const count = (k) => Number((r.stdout.match(new RegExp(`^# ${k} (\\d+)$`, "m")) ?? [])[1] ?? NaN);
+  // The runner's own summary is the last such line; a program's output can print earlier ones.
+  const count = (k) => Number([...r.stdout.matchAll(new RegExp(`^# ${k} (\\d+)$`, "gm"))].at(-1)?.[1] ?? NaN);
   return { pass: count("pass"), fail: count("fail"), tests: count("tests") };
 }
 

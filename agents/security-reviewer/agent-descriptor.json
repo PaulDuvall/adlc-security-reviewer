@@ -1,6 +1,6 @@
 {
   "format": "agent-descriptor-v1",
-  "agent_version": "0.1.0",
+  "agent_version": "0.2.0",
   "does": "Reads an Agent Package and the spending limit its owner set, before the agent is installed. Hands back a statement of what the agent may reach and why, what it may spend, what it must never do, and what was accepted knowingly, or a refusal naming everything that stopped it.",
   "offerings": [
     {
@@ -14,45 +14,7 @@
       "outputs": [
         { "name": "security statement", "kind": "application/json", "when": "per_task" }
       ],
-      "how": { "control": "script", "intelligence": "none", "cost": "none", "contract": "full" },
-      "steps": [
-        {
-          "id": "read-the-package",
-          "name": "Read the package",
-          "does": "Reads the descriptor, the runtime requirements and every shipped file, and computes the package digest.",
-          "inputs": [{ "name": "the package", "kind": "document", "required": true }],
-          "outputs": [{ "name": "the reading", "kind": "application/json", "when": "per_task" }],
-          "how": { "control": "script", "intelligence": "none", "cost": "none", "contract": "full" }
-        },
-        {
-          "id": "find-what-the-programs-reach",
-          "name": "Find what the programs reach",
-          "does": "Finds every URL, environment variable read and process start in the package's programs.",
-          "inputs": [{ "name": "the reading", "kind": "application/json", "required": true }],
-          "outputs": [{ "name": "the reach", "kind": "application/json", "when": "per_task" }],
-          "how": { "control": "script", "intelligence": "none", "cost": "none", "contract": "full" }
-        },
-        {
-          "id": "check-the-declaration",
-          "name": "Check the declaration",
-          "does": "Checks the reach, the systems, the reasons, the ceilings, the dependencies and the files against the declaration and the owner's limits.",
-          "inputs": [
-            { "name": "the reading", "kind": "application/json", "required": true },
-            { "name": "the reach", "kind": "application/json", "required": true },
-            { "name": "the owner's spending limit", "kind": "application/json", "required": true }
-          ],
-          "outputs": [{ "name": "the findings", "kind": "application/json", "when": "per_task" }],
-          "how": { "control": "script", "intelligence": "none", "cost": "none", "contract": "full" }
-        },
-        {
-          "id": "write-the-statement",
-          "name": "Write the statement",
-          "does": "Writes the security statement, or the refusal, from the findings.",
-          "inputs": [{ "name": "the findings", "kind": "application/json", "required": true }],
-          "outputs": [{ "name": "security statement", "kind": "application/json", "when": "per_task" }],
-          "how": { "control": "script", "intelligence": "none", "cost": "none", "contract": "full" }
-        }
-      ]
+      "how": { "control": "script", "intelligence": "none", "cost": "none", "contract": "full" }
     }
   ],
   "refusals": "Granting access, binding a credential, installing the agent, or changing the package. Any ask other than a review is declined.\nPassing an access with no reason recorded against it.\nPassing a package whose programs reach a system the declaration does not name. The refusal names that system.\nPassing a package whose owner set no spending limit.\nRepeating a credential value it found. The refusal names the file and the kind of credential, never the value.",

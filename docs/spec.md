@@ -1,6 +1,6 @@
 # Security reviewer: statement of the job
 
-Version 0.1.0. This file is the input to the Test and Code stages. It is locked at the
+Version 0.2.0. This file is the input to the Test and Code stages. It is locked at the
 `handoff` tag. The Code stage reads it and never changes it.
 
 ## Sources
@@ -79,7 +79,7 @@ Passed:
     "package": { "name": "ticket-reader", "version": "0.1.0", "digest": "sha256:<64 hex>" },
     "reaches": [
       { "system": "ticket-store", "access": "read", "why": "<descriptor needs>",
-        "kind": "service", "credential": "ticket-store-token", "leaves": false }
+        "kind": "service", "credential": "ticket-store-token" }
     ],
     "spends": {
       "limit": { "most_micro": 5000000, "currency": "USD", "per": "day" },
@@ -123,7 +123,9 @@ Declined:
   (Python).
 - **Package digest.** `sha256:` followed by the hex SHA-256 of the concatenation, in
   byte-wise sorted path order, of one line per shipped file: the POSIX relative path, a NUL
-  byte, the file's hex SHA-256, and a newline.
+  byte, the file's hex SHA-256, and a newline. It is this reviewer's digest of the package
+  directory, not the archive digest of Common Agent Specification §12.6 rule 5 (open question 7).
+- **Credential-bearing system.** A runtime requirements system with a non-blank `credential`.
 - **Credential-like name.** An environment variable name with at least one `_`-separated
   part in: `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `CREDENTIAL`, `CREDENTIALS`,
   `AUTH`, `PAT`. Case-insensitive. `TEXT_API_KEY` is one; `AUTHOR_NAME` is not.
@@ -147,20 +149,22 @@ EARS form. Each has a test, listed in [traceability.md](traceability.md).
 | SR-05 | If the package directory is missing, or neither `agent-descriptor.json` nor its former name `descriptor.json` parses as JSON, or neither `agent-runtime-requirements.json` nor its former name `install.json` parses as JSON, then the reviewer shall refuse with rule `unreadable`. Where a current and a former name are both present, the current name shall be read. |
 | SR-06 | If the system names in the descriptor's `systems[]` and the runtime requirements' `systems[]` differ as sets, then the reviewer shall refuse with rule `systems-mismatch`, one refusal per system found in only one file. |
 | SR-07 | If a descriptor system has a missing or blank `needs`, then the reviewer shall refuse with rule `no-reason`, naming the system. |
-| SR-08 | If a program contains an `http`, `https`, `ws` or `wss` URL in executable code, then the reviewer shall refuse with rule `undeclared-reach`, with `system` set to the URL's hostname (no port), plus `file` and `line`. A URL inside a comment shall not count. |
-| SR-09 | If a program reads a credential-like environment variable that is not a bound name, then the reviewer shall refuse with rule `undeclared-reach`, with `system` set to the variable name, plus `file` and `line`. Reads recognized: JavaScript `process.env.NAME`, `process.env["NAME"]`, `process.env['NAME']`, and destructuring from `process.env`; Python `os.environ["NAME"]`, `os.environ.get("NAME")`, `os.getenv("NAME")`. |
+| SR-08 | If a program contains an `http`, `https`, `ws` or `wss` URL, in any letter case, in executable code, then the reviewer shall refuse with rule `undeclared-reach`, with `system` set to the hostname a WHATWG URL parser gives for it (lowercase, no port), plus `file` and `line`. A URL inside a comment shall not count. A JavaScript comment ends at any ECMAScript line terminator; a Python comment ends at `\n` or `\r`. |
+| SR-09 | If a program reads a credential-like environment variable that is not a bound name, then the reviewer shall refuse with rule `undeclared-reach`, with `system` set to the variable name, plus `file` and `line`. Reads recognized: JavaScript `process.env.NAME`, `process.env["NAME"]`, `process.env['NAME']`, and destructuring from `process.env`; Python `os.environ["NAME"]`, `os.environ.get("NAME")`, `os.getenv("NAME")`. In JavaScript, space or a comment may sit around each `.` of a read. |
 | SR-10 | If the owner's `spend_limit` is missing or malformed per the request schema, then the reviewer shall refuse with rule `spend-limit`. |
-| SR-11 | If a spending system has no `ceilings[]` entry, or a `ceilings[]` entry has an `enforced_by` other than `runtime` or `platform`, then the reviewer shall refuse with rule `ceiling-missing`, naming the system. |
+| SR-11 | If a spending system has no `ceilings[]` entry, or a `ceilings[]` entry has an `enforced_by` other than `runtime` or `platform`, or says `platform` for a credential-bearing system, then the reviewer shall refuse with rule `ceiling-missing`, naming the system. Common Agent Specification §12.4 item 4: the scripts reach such a system themselves, so only the runtime can count what it spends. |
 | SR-12 | If a `ceilings[]` entry has no `owner.ceilings` entry with the same `system` and `per` and a non-negative numeric `most`, then the reviewer shall refuse with rule `ceiling-unset`, naming the system. |
 | SR-13 | If any shipped file matches a credential pattern from the publisher's list, then the reviewer shall refuse with rule `credential-in-files`, naming the file and the kind of credential. No answer shall contain the matched text. |
 | SR-14 | If a runtime requirements `dependencies[]` entry names a `lockfile` that is not a shipped file, or a `sha256` that differs from that file's digest, or the lockfile is npm format and any entry under `packages` other than the root lacks `integrity`, then the reviewer shall refuse with rule `dependency-unpinned`, naming the lockfile. |
 | SR-15 | When more than one refusal rule applies, the reviewer shall list every refusal found in one answer. |
-| SR-16 | When no refusal rule applies, the reviewer shall answer `passed` with a statement in which every declared system appears in `reaches` with its access and a non-empty `why`, `spends.limit` equals the owner's limit, and `spends.ceilings` lists every ceiling with the owner's number and its `enforced_by`. |
+| SR-16 | When no refusal rule applies, the reviewer shall answer `passed` with a statement in which every declared system appears in `reaches` with its access and a non-empty `why`, and with `leaves` only where the descriptor or the runtime requirements state it (Common Agent Specification §6.4 rule 2: absent means not stated); `spends.limit` equals the owner's limit, member for member; and `spends.ceilings` lists every ceiling with the owner's number and its `enforced_by`. |
 | SR-17 | The statement's `accepted_knowingly` shall carry one entry for each of: a system with access other than `read`; a system with `leaves: true`; a ceiling with `enforced_by: runtime`; a program that imports `child_process` (JavaScript) or `subprocess`, or calls `os.system` (Python); a program that reads an environment variable that is neither credential-like nor bound. |
-| SR-18 | The statement's `not_checked` shall always name: known vulnerabilities in dependencies; destinations computed at runtime; whether each reason is sufficient; behavior when running. It shall also name each shipped file in a language other than JavaScript or Python that looks like a program (`.sh`, `.rb`, `.go`, `.rs`, `.java`, `.php`), and that files under test directories were not read. |
+| SR-18 | The statement's `not_checked` shall always name: known vulnerabilities in dependencies; destinations computed at runtime; whether each reason is sufficient; behavior when running; that files under `test`, `tests`, `node_modules` and `.git` segments, and files named `*.test.*`, were not read; and that offering authority, external inputs and workspaces were not read (ROLES.md §34.2 item 5). It shall also name each shipped file in a language other than JavaScript or Python that looks like a program (`.sh`, `.rb`, `.go`, `.rs`, `.java`, `.php`), and each `dependencies[]` lockfile that is a shipped file not named `package-lock.json` or `npm-shrinkwrap.json`. |
 | SR-19 | Every answer to a readable package shall carry the package digest. Changing one byte of a shipped file shall change it. Changing a file under `test/` shall not. |
 | SR-20 | The same request shall produce a byte-identical answer on every run. |
 | SR-21 | The reviewer shall call no model, open no network connection, and start no process. It shall run under Node's permission model with read-only file access. Its own package shall pass its own review with zero declared systems. |
+| SR-22 | If a JavaScript program imports, re-exports or requires a relative specifier (`./` or `../`) that resolves, against the program's folder, to a path outside the package or to a file that is not a shipped file, or a Python program makes a relative import whose module path has a `test` or `tests` part, then the reviewer shall refuse with rule `unread-code`, with `system` set to the specifier as written, plus `file` and `line`. |
+| SR-23 | If the package's `mcp.json` names a server, as a key of its `mcpServers` object, that is not a system the descriptor declares, then the reviewer shall refuse with rule `undeclared-reach`, with `system` set to the server's name and `file` set to `mcp.json`. An `mcp.json` that is not a JSON object, or whose `mcpServers` is not an object, shall be refused with rule `unreadable`. |
 
 ## Program or judgment
 
@@ -170,7 +174,7 @@ EARS form. Each has a test, listed in [traceability.md](traceability.md).
 | Find what the programs reach | program |
 | Check the declaration and the owner's limits | program |
 | Write the statement | program |
-| Decide whether each reason is good enough | judgment, held by a person. Named in `not_checked`. |
+| Decide whether each reason is good enough | judgment, held by a person. Named in `not_checked`. The role requires a reason, not a good one. |
 
 ## Out of scope for 0.1.0
 
@@ -179,20 +183,30 @@ EARS form. Each has a test, listed in [traceability.md](traceability.md).
 | Hosting on an AgentMesh fleet host (`run` block, job folder, signed manifest) | The host contract is not published in the files read. Needs the AgentMesh team. |
 | Vulnerability lookups (OSV or similar) | Needs network; SR-21 forbids it. A separate step could hold it. |
 | Python, Go or other lockfile formats | npm only, to keep the first slice small. Named in `not_checked` by SR-18. |
-| Judging whether a reason is sufficient | A judgment. The role requires a reason, not a good one. |
 
 ## Open questions
 
+Each names its owner, and is decided at the next Test-stage reopen unless the owner decides
+sooner.
+
 1. The shape of a `dependencies[]` entry (`lockfile`, `sha256`) is this reviewer's reading of
-   §12.4 item 2. The specification does not show one.
+   §12.4 item 2. The specification does not show one. Owner: spec owner.
 2. Excluding `test/` from shipped files assumes the package maker does not ship tests. The
-   built `incident-recorder/package` in CommonAgent/adlc supports this. Not confirmed.
+   built `incident-recorder/package` in CommonAgent/adlc supports this. Not confirmed, and the
+   package maker's build is not run in CI. SR-22 refuses a program that imports an excluded
+   file. Owner: AgentMesh team.
 3. Whether reaching `localhost` should be treated like any other host. Treated the same here.
-4. No published conformance check exists for this role as of 2026-10-26. The local harness in
-   `conformance/` is written from ROLES.md §34.4 and should be replaced when one is published.
+   Owner: spec owner.
+4. Whether the published conformance check for ROLES.md §34.4, when one exists, agrees with the
+   local harness in `conformance/`. None was published as of 2026-10-26. Owner: AgentMesh team.
 5. SR-08 counts a URL used only as an identifier, such as a JSON Schema address, as reach. A
    trial run over CommonAgent/adlc at `fa174cf` refused `spec-writer` for its `SCHEMA_URL`.
    Whether identifiers should be exempt, and how to tell them apart without judgment, is open.
+   Owner: spec owner.
 6. The same trial run refused five of six lifecycle package sources for hard-coded hosts,
    including a model endpoint and a cloud metadata server. Whether the model the harness is
    given belongs in the derived set as a literal, or only by binding, needs the AgentMesh team.
+   Owner: AgentMesh team.
+7. The package digest is not the archive digest of Common Agent Specification §12.6 rule 5, so a
+   statement cannot be joined to build or deployment records by digest. Whether the request
+   should carry the archive digest for the answer to echo. Owner: AgentMesh team.

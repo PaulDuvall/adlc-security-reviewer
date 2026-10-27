@@ -18,6 +18,26 @@ export const FAKE = {
   privateKeyHeader: () => ["-----BEGIN ", "PRIVATE", " KEY-----"].join(""),
 };
 
+/** One sample of each kind in the publisher's list, assembled at run time like FAKE.
+ *  `secret` is the part no answer may repeat. */
+export function CREDENTIALS() {
+  const pem = ["-----BEGIN ", "RSA PRIVATE", " KEY-----"].join("");
+  const encrypted = ["-----BEGIN ", "ENCRYPTED PRIVATE", " KEY-----"].join("");
+  const awsSecret = ["aws_secret", "_access_key = ", "Kx9vQ2mZ7pL4", "nR8sT1wY3uB6", "cD5eF0gH2jK4"].join("");
+  const nkey = ["S", "U", "A2B3C4D5E6F7G2H3".repeat(3), "IJKLMNOP"].join("");
+  const typeLine = ['"type"', ': "service', '_account"'].join("");
+  const keyLine = ['"private', '_key": "-----BEGIN', '\\nMIIEvQ"'].join("");
+  return [
+    { what: "a private key", text: `${pem}\nMIIEowIBAAKCAQEA\n`, secret: pem },
+    { what: "a service-account key", text: `{ ${typeLine} }\n`, secret: typeLine },
+    { what: "a service-account key", text: `{ ${keyLine} }\n`, secret: keyLine },
+    { what: "an AWS access key", text: `id = ${FAKE.awsAccessKey()}\n`, secret: FAKE.awsAccessKey() },
+    { what: "an AWS secret key", text: `${awsSecret}\n`, secret: awsSecret },
+    { what: "an NKey seed", text: `seed ${nkey} here\n`, secret: nkey },
+    { what: "a PKCS#12 keystore", text: `${encrypted}\nMIIFHz\n`, secret: encrypted },
+  ];
+}
+
 export const LIMIT = Object.freeze({ most_micro: 1000000, currency: "USD", per: "day" });
 
 const PROGRAM = [
@@ -86,11 +106,11 @@ export function request(packageDir, owner = { spend_limit: { ...LIMIT }, ceiling
 
 /** Run the reviewer as a command, the way a host would, under Node's permission model:
  *  it may read any file, and may not write one, start a process or open a connection. */
-export function run(input) {
+export function run(input, cwd = ROOT) {
   const body = typeof input === "string" ? input : JSON.stringify(input);
   const r = spawnSync(process.execPath, [
     "--permission", "--allow-fs-read=*", "--import", NO_NETWORK, REVIEW,
-  ], { input: body, encoding: "utf8", cwd: ROOT, timeout: 20000 });
+  ], { input: body, encoding: "utf8", cwd, timeout: 20000 });
   let answer = null;
   try { answer = JSON.parse(r.stdout); } catch { /* left null; the test says why */ }
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", answer };

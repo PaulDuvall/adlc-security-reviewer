@@ -2,10 +2,10 @@
 // Each test name starts with the requirement it checks, from docs/spec.md.
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import {
-  AGENT, FAKE, LIMIT, basePackage, expectedDigest, refusal, request, review, rules, run, sha256, tree, writePackage,
+  AGENT, CREDENTIALS, FAKE, LIMIT, basePackage, expectedDigest, refusal, request, review, rules, run, sha256, tree, writePackage,
 } from "./helpers.mjs";
 
 const PROGRAM_PATH = "skills/read-tickets/scripts/read.mjs";
@@ -178,6 +178,47 @@ test("SR-08 finds a URL in a string followed by a comment, in a template, and in
   }
 });
 
+test("SR-08 refuses every literal URL a parser accepts, whatever its case or what comes before it", () => {
+  const text = [
+    'const a = "HTTPS://API.Upper.Example.COM:8443/x";',
+    'const b = "https://redis_cache:6379/";',
+    'const c = "https://a!b.example/";',
+    'const d = "see:\\nhttps://after-escape.example/";',
+    `// a comment${String.fromCharCode(0x2028)}fetch("https://after-separator.example/");`,
+    '// a comment\rfetch("https://after-cr.example/");',
+    "",
+  ].join("\n");
+  const p = withProgram(text);
+  p["skills/read-tickets/scripts/cr.py"] = '# a comment\rURL = "https://python-cr.example/"\n';
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  const expected = [
+    ["api.upper.example.com", PROGRAM_PATH, 1], ["redis_cache", PROGRAM_PATH, 2], ["a!b.example", PROGRAM_PATH, 3],
+    ["after-escape.example", PROGRAM_PATH, 4], ["after-separator.example", PROGRAM_PATH, 5], ["after-cr.example", PROGRAM_PATH, 6],
+    ["python-cr.example", "skills/read-tickets/scripts/cr.py", 1],
+  ];
+  for (const [host, file, line] of expected) {
+    const r = refusal(answer, "undeclared-reach", host);
+    assert.ok(r, `names ${host}`);
+    assert.equal(r.file, file, `${host} in ${file}`);
+    assert.equal(r.line, line, `${host} on line ${line}`);
+  }
+});
+
+test("SR-08 does not count a comment's URL after a regular expression or a division", () => {
+  const text = [
+    "export function f(x, y) {",
+    "  if (x) /'/.test(y); // https://after-condition.example",
+    "  { }",
+    "  /'/.test(y); // https://after-block.example",
+    "  return (x + 1) / 2; // https://after-division.example",
+    "}",
+    "",
+  ].join("\n");
+  const { answer } = review(withProgram(text));
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+});
+
 // SR-09
 
 test("SR-09 refuses an unbound credential-like variable, naming it, the file and the line", () => {
@@ -210,9 +251,24 @@ test("SR-09 recognizes bracket reads, destructuring and Python reads", () => {
   }
 });
 
+test("SR-09 recognizes a read split by space or a comment", () => {
+  const p = withProgram([
+    "const a = process",
+    "  .env.SPLIT_TOKEN;",
+    "const b = process/* why */.env.COMMENTED_SECRET;",
+    "",
+  ].join("\n"));
+  const { answer } = review(p);
+  for (const name of ["SPLIT_TOKEN", "COMMENTED_SECRET"]) {
+    assert.ok(refusal(answer, "undeclared-reach", name), `names ${name}`);
+  }
+});
+
 test("SR-09 does not count a credential-like variable the runtime requirements bind", () => {
-  const { answer } = review(basePackage());
-  assert.equal(answer?.result, "passed");
+  const p = withProgram(`${basePackage()[PROGRAM_PATH]}const extra = process.env.TICKETS_API_KEY;\n`);
+  p["agent-runtime-requirements.json"].systems[0].settings.push({ env: "TICKETS_API_KEY", purpose: "a second key the store asks for" });
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
 });
 
 // SR-10
@@ -269,6 +325,12 @@ test("SR-11 refuses a ceiling that does not say which side enforces it", () => {
   }
 });
 
+test("SR-11 refuses a platform ceiling on a system the scripts reach with a credential", () => {
+  const p = spending([{ system: "ticket-store", per: "task", enforced_by: "platform" }]);
+  const { answer } = review(p, { spend_limit: { ...LIMIT }, ceilings: [{ system: "ticket-store", per: "task", most: 10 }] });
+  assert.ok(refusal(answer, "ceiling-missing", "ticket-store"));
+});
+
 // SR-12
 
 test("SR-12 refuses a ceiling the owner set no number for", () => {
@@ -315,6 +377,35 @@ test("SR-13 does not read files under test folders", () => {
   const p = { ...basePackage(), "test/fixtures/key.pem": `${FAKE.privateKeyHeader()}\nAAAA\n` };
   const { answer } = review(p);
   assert.equal(answer?.result, "passed");
+});
+
+test("SR-13 refuses each kind of credential in the publisher's list, without repeating it", () => {
+  for (const c of CREDENTIALS()) {
+    const { answer, stdout } = review({ ...basePackage(), "references/notes.md": c.text });
+    const r = refusal(answer, "credential-in-files");
+    assert.ok(r, `refuses ${c.what}`);
+    assert.equal(r.file, "references/notes.md");
+    assert.ok(r.why.includes(c.what), `"${r.why}" names ${c.what}`);
+    assert.ok(!stdout.includes(c.secret), `does not repeat ${c.what}`);
+  }
+});
+
+test("SR-13 does not repeat a credential that a declaration field or a URL carries", () => {
+  const key = FAKE.awsAccessKey();
+  const changes = [
+    (p) => { p["agent-descriptor.json"].systems.push({ name: key, access: "read", needs: "x" }); },
+    (p) => { p["agent-runtime-requirements.json"].ceilings.push({ system: key, per: "task", enforced_by: "runtime" }); },
+    (p) => { p["agent-runtime-requirements.json"].dependencies.push({ lockfile: `${key}.json`, sha256: "0".repeat(64) }); },
+    (p) => { p["plugin.json"].name = key; },
+    (p) => { p[PROGRAM_PATH] += `fetch("https://${key}.example.com/");\n`; },
+  ];
+  for (const change of changes) {
+    const p = basePackage();
+    change(p);
+    const { answer, stdout } = review(p);
+    assert.equal(answer?.result, "refused");
+    assert.ok(!stdout.toLowerCase().includes(key.toLowerCase()), `the key is not repeated, in any case: ${stdout.slice(0, 200)}`);
+  }
 });
 
 // SR-14
@@ -384,8 +475,8 @@ test("SR-16 passes a sound package with a statement of reach, reasons, limit and
   assert.deepEqual(s.package, { name: "ticket-reader", version: "0.1.0", digest: expectedDigest(dir) });
   assert.deepEqual(s.reaches, [{
     system: "ticket-store", access: "read", why: "to read the tickets it summarizes",
-    kind: "service", credential: "ticket-store-token", leaves: false,
-  }]);
+    kind: "service", credential: "ticket-store-token",
+  }], "leaves appears only where the package states it");
   assert.deepEqual(s.spends, { limit: { ...LIMIT }, ceilings: [] });
   assert.ok(s.never.includes("Writing to the ticket store."));
   assert.ok(s.never.includes("Summarizing a ticket it was not handed."));
@@ -395,10 +486,20 @@ test("SR-16 passes a sound package with a statement of reach, reasons, limit and
 });
 
 test("SR-16 lists every ceiling with the owner's number and the side that enforces it", () => {
-  const p = spending([{ system: "ticket-store", per: "task", enforced_by: "platform" }]);
-  const { answer } = review(p, { spend_limit: { ...LIMIT }, ceilings: [{ system: "ticket-store", per: "task", most: 25 }] });
-  assert.equal(answer?.result, "passed");
-  assert.deepEqual(answer.statement.spends.ceilings, [{ system: "ticket-store", per: "task", most: 25, enforced_by: "platform" }]);
+  const p = basePackage();
+  p["agent-descriptor.json"].systems.push({ name: "text-reasoning", access: "read", needs: "to summarize the tickets" });
+  p["agent-runtime-requirements.json"].systems.push({ name: "text-reasoning", kind: "mcp", spends: { unit: "tokens" } });
+  p["agent-runtime-requirements.json"].ceilings = [{ system: "text-reasoning", per: "task", enforced_by: "platform" }];
+  const { answer } = review(p, { spend_limit: { ...LIMIT }, ceilings: [{ system: "text-reasoning", per: "task", most: 25 }] });
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  assert.deepEqual(answer.statement.spends.ceilings, [{ system: "text-reasoning", per: "task", most: 25, enforced_by: "platform" }]);
+});
+
+test("SR-16 states the owner's limit member for member", () => {
+  const limit = { ...LIMIT, note: "set by the team lead" };
+  const { answer } = review(basePackage(), { spend_limit: limit, ceilings: [] });
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  assert.deepEqual(answer.statement.spends.limit, limit);
 });
 
 // SR-17
@@ -458,7 +559,7 @@ test("SR-17 accepts knowingly an unbound variable that is not credential-like", 
 
 test("SR-18 names what was not checked", () => {
   const nc = review(basePackage()).answer?.statement?.not_checked ?? [];
-  for (const item of [/vulnerab/i, /computed at runtime/i, /sufficient/i, /running/i, /test/i]) {
+  for (const item of [/vulnerab/i, /computed at runtime/i, /sufficient/i, /running/i, /test/i, /node_modules/, /authority/i]) {
     assert.ok(nc.some((line) => item.test(line)), `names ${item}`);
   }
 });
@@ -467,6 +568,16 @@ test("SR-18 names a program in a language it does not read", () => {
   const p = { ...basePackage(), "skills/read-tickets/scripts/fetch.sh": "#!/bin/sh\ncurl -s \"$URL\"\n" };
   const nc = review(p).answer?.statement?.not_checked ?? [];
   assert.ok(nc.some((line) => line.includes("skills/read-tickets/scripts/fetch.sh")));
+});
+
+test("SR-18 names a lockfile in a format other than npm", () => {
+  const body = "certifi==2024.8.30 --hash=sha256:aa\n";
+  const p = basePackage();
+  p["skills/read-tickets/requirements.txt"] = body;
+  p["agent-runtime-requirements.json"].dependencies = [{ skill: "read-tickets", lockfile: "skills/read-tickets/requirements.txt", sha256: sha256(body) }];
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+  assert.ok(answer.statement.not_checked.some((line) => line.includes("skills/read-tickets/requirements.txt")));
 });
 
 // SR-19
@@ -509,6 +620,13 @@ test("SR-20 gives a byte-identical answer to the same request", () => {
   assert.equal(run(request(bad)).stdout, once.stdout);
 });
 
+test("SR-20 gives the same answer from another directory, with a relative package path", () => {
+  const dir = writePackage(basePackage());
+  const first = run(request(dir));
+  assert.equal(first.answer?.result, "passed");
+  assert.equal(run(request(basename(dir)), dirname(dir)).stdout, first.stdout);
+});
+
 // SR-21
 
 test("SR-21 runs with read-only files, no processes and no network", () => {
@@ -519,8 +637,63 @@ test("SR-21 runs with read-only files, no processes and no network", () => {
 });
 
 test("SR-21 passes its own package with zero declared systems", () => {
-  const { answer } = run(request(AGENT, { spend_limit: { most_micro: 0, currency: "USD", per: "day" }, ceilings: [] }));
+  // A relative path, resolved against the reviewer's working directory: run's is the repository root.
+  const { answer } = run(request("agents/security-reviewer", { spend_limit: { most_micro: 0, currency: "USD", per: "day" }, ceilings: [] }));
   assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
   assert.deepEqual(answer.statement.reaches, []);
   assert.equal(answer.statement.package.name, "security-reviewer");
+  assert.equal(answer.statement.package.digest, expectedDigest(AGENT));
+});
+
+// SR-22
+
+test("SR-22 refuses a program that imports a file the review does not read", () => {
+  const p = withProgram([
+    'import { helper } from "../test/helper.mjs";',
+    'const fixture = require("./fixture.test.js");',
+    'export * from "../../../../outside.mjs";',
+    "",
+  ].join("\n"));
+  p["skills/read-tickets/test/helper.mjs"] = 'export const helper = () => fetch("https://hidden.example/");\n';
+  p["skills/read-tickets/scripts/fixture.test.js"] = "module.exports = {};\n";
+  p["skills/read-tickets/scripts/load.py"] = "from .tests.support import load\n";
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  const expected = [
+    ["../test/helper.mjs", PROGRAM_PATH, 1], ["./fixture.test.js", PROGRAM_PATH, 2],
+    ["../../../../outside.mjs", PROGRAM_PATH, 3], [".tests.support", "skills/read-tickets/scripts/load.py", 1],
+  ];
+  for (const [specifier, file, line] of expected) {
+    const r = refusal(answer, "unread-code", specifier);
+    assert.ok(r, `names ${specifier}`);
+    assert.equal(r.file, file);
+    assert.equal(r.line, line);
+  }
+});
+
+test("SR-22 passes a program that imports only shipped files", () => {
+  const p = withProgram(`import { shape } from "./shape.mjs";\n${basePackage()[PROGRAM_PATH]}`);
+  p["skills/read-tickets/scripts/shape.mjs"] = "export const shape = (t) => t;\n";
+  const { answer } = review(p);
+  assert.equal(answer?.result, "passed", JSON.stringify(answer?.refusals ?? null));
+});
+
+// SR-23
+
+test("SR-23 refuses an mcp.json server the descriptor does not declare", () => {
+  const p = basePackage();
+  p["mcp.json"] = { mcpServers: { "ticket-store": { type: "stdio", command: "./bin/tickets" }, "billing-api": { type: "stdio", command: "./bin/billing" } } };
+  const { answer } = review(p);
+  assert.equal(answer?.result, "refused");
+  const r = refusal(answer, "undeclared-reach", "billing-api");
+  assert.ok(r, "names the undeclared server");
+  assert.equal(r.file, "mcp.json");
+  assert.equal(refusal(answer, "undeclared-reach", "ticket-store"), undefined, "a declared server passes");
+});
+
+test("SR-23 refuses an mcp.json that cannot be read", () => {
+  for (const body of ["{ not json", "[]\n", `${JSON.stringify({ mcpServers: [] })}\n`]) {
+    const { answer } = review({ ...basePackage(), "mcp.json": body });
+    assert.ok(rules(answer).includes("unreadable"), `refuses ${JSON.stringify(body)}`);
+  }
 });
