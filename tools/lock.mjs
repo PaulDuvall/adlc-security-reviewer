@@ -7,11 +7,11 @@
 //   node tools/lock.mjs --write    record the lock (the spec owner, at handoff)
 //   node tools/lock.mjs --verify   check it (every round, and in CI)
 //
-// Node 22 or later, nothing else.
+// Node 22 or later and git, nothing else.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { lstatSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,26 +24,32 @@ export const WRITABLE = [
   /^docs\/rounds\.md$/,
   /^README\.md$/,
 ];
-const IGNORED = [/^\.git\//, /(^|\/)node_modules\//, /^\.claude\/settings\.local\.json$/, /(^|\/)\.DS_Store$/, new RegExp(`^${LOCK}$`)];
-
 export const writable = (p) => WRITABLE.some((r) => r.test(p));
 
+/** The files `git add -A` would commit: every tracked file, and every other file no ignore
+ *  rule excludes. A re-lock then commits exactly the files it locks, and a local file that
+ *  .gitignore names is never locked. A tracked file deleted from the folder is left out, so
+ *  --verify names it removed. */
 function files() {
-  const out = [];
-  const walk = (d) => {
-    for (const name of readdirSync(d)) {
-      const full = join(d, name);
-      const rel = relative(ROOT, full).split(sep).join("/");
-      if (IGNORED.some((r) => r.test(rel) || r.test(`${rel}/`))) continue;
-      if (statSync(full).isDirectory()) walk(full);
-      else out.push(rel);
-    }
-  };
-  walk(ROOT);
-  return out.sort();
+  const git = spawnSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: ROOT, encoding: "utf8", maxBuffer: 1 << 26 });
+  if (git.status !== 0) {
+    process.stderr.write(`git could not list the files to lock; run this in a clone of the repository\n${git.stderr || git.error?.message || ""}\n`);
+    process.exit(1);
+  }
+  return [...new Set(git.stdout.split("\0"))].filter((p) => p && p !== LOCK && lstatSync(join(ROOT, p), { throwIfNoEntry: false })).sort();
 }
 
-const digest = (p) => createHash("sha256").update(readFileSync(join(ROOT, p))).digest("hex");
+/** A file's digest. A symbolic link's is of the path it holds, as git stores it. A folder in
+ *  the list is a repository inside this one, whose files git does not commit. */
+function digest(p) {
+  const full = join(ROOT, p);
+  const entry = lstatSync(full);
+  if (entry.isDirectory()) {
+    process.stderr.write(`${p} is a git repository inside this one; move it out, then lock or verify\n`);
+    process.exit(1);
+  }
+  return createHash("sha256").update(entry.isSymbolicLink() ? readlinkSync(full) : readFileSync(full)).digest("hex");
+}
 
 function locked() {
   return Object.fromEntries(files().filter((p) => !writable(p)).map((p) => [p, digest(p)]));

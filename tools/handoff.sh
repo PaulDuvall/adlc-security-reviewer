@@ -36,11 +36,11 @@ echo "== the Test stage's done check: no test passes against the empty stand-ins
 node tools/removal-check.mjs
 
 echo "== lock"
+[ -d .git ] || git init -q -b main
 node tools/lock.mjs --write
 node tools/lock.mjs --verify
 
 echo "== commit and tag"
-[ -d .git ] || git init -q -b main
 git add -A
 git commit -q -m "Test stage handoff: statement, suite, stand-ins, harness and guardrails"
 git tag -a handoff -m "Test stage handoff. The Code stage may change only the paths in tools/lock.mjs WRITABLE."
