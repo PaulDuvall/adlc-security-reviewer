@@ -6,7 +6,7 @@
     ".gitattributes": "5713a0c7a5a85a923ddf5222e88be02ed8fb0df1cd715d9bfa4846f600a8f93f",
     ".github/CODEOWNERS": "046823591bd3e87e16b0c56d764f3bc0d1653af5e048a27d667f2685f60ea073",
     ".github/workflows/verify.yml": "0ef62be761836ce33c2b369b4d2988d5ea84c0800b4c970cc485c2a67ec8ab8e",
-    ".gitignore": "b088b493869547c08d7af6943a263c703730190d273e8334361c4186f1c91155",
+    ".gitignore": "37b91d073c4d0d52a45be553cb54eed2df7c2fd722e93d80389a825222838dd0",
     ".gitleaks.toml": "bb2336b4b0194ba7a41d24ee2aebf89f1048b9d157f4bfbf146c71cf0afba852",
     "CLAUDE.md": "9299da22980f94da84af640b78ca3e6a8146fd9fa8b976abc503bc601f5880dc",
     "LICENSE": "38b0070336f7298c06ca48d623a2cb593858d27e0fb8cdee6c30f6a27826b7f7",
@@ -30,8 +30,8 @@
     "docs/spec.md": "23ae25eca5f0a5b1a43f5518efa6aaaff516bb4a85c39b88b4d9948cec6e38d6",
     "docs/traceability.md": "883ee9a782973e19a75f397b2d1a43e78e73d437c4496eeb96cce6ab58ba8920",
     "package.json": "a0ef3dc5a4bb252f1d8d0de7c19f7bcecb808ef27331309b59385da24ef33010",
-    "tools/handoff.sh": "573445baf9b67c1b4f421f7fc5d36c26128221a4d37f00e7ee57f4c048c3c553",
-    "tools/lock.mjs": "86a0caba0ada80d18d228f57bbec9252331a36af2a35d07182cc696428997f33",
+    "tools/handoff.sh": "6e521d3b6c7a766dcd40f27e621567c4cf7ceebc5df753822df22f85ce0bcf28",
+    "tools/lock.mjs": "944b8ec0948ccacf5769cd9dd0f6d51e829dc49f2967749b6f1735c4c65d48a9",
     "tools/removal-check.mjs": "b4fa363a5097dcb5531aa905cf0eab21793a2b0f1086b921316396362dd6db44"
   }
 }
