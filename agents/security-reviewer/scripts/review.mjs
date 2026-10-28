@@ -20,7 +20,9 @@ const badRequest = (why) => refused([{ rule: "bad-request", why }]);
 function parse(request) {
   let r = request;
   if (typeof r === "string" || Buffer.isBuffer(r)) {
-    try { r = JSON.parse(String(r)); } catch { return { why: "the request is not JSON" }; }
+    // A request too long to decode is not one that is not JSON: the reviewer cannot finish (SR-01).
+    try { r = String(r); } catch { return { unreadable: "the request is too long to read" }; }
+    try { r = JSON.parse(r); } catch { return { why: "the request is not JSON" }; }
   }
   if (r === null || typeof r !== "object" || Array.isArray(r)) return { why: "the request is not a JSON object" };
   if (r.review !== "v1") return { why: 'the request does not carry "review": "v1"' };
@@ -78,7 +80,8 @@ function reviewPackage(pkg, owner) {
 /** The answer to one request, a JSON string or an already parsed object. `options.cwd` is
  *  the directory a relative package path is resolved against. */
 export function answer(request, options = {}) {
-  const { request: r, why } = parse(request);
+  const { request: r, why, unreadable } = parse(request);
+  if (unreadable) return refused([{ rule: "unreadable", why: unreadable }]);
   if (!r) return badRequest(why);
   if (r.ask !== "review") return { result: "declined", why: DECLINED };
   if (typeof r.package !== "string" || !r.package.trim()) return badRequest("the request names no package directory");
@@ -93,14 +96,12 @@ export function answer(request, options = {}) {
   }
 }
 
-function readStandardInput() {
-  try { return readFileSync(0, "utf8"); } catch { return ""; }
-}
-
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let reply;
-  try { reply = answer(readStandardInput()); } catch {
-    reply = refused([{ rule: "unreadable", why: "the package could not be read" }]);
+  // Standard input is read as bytes: a read that fails is one the reviewer cannot finish (SR-01),
+  // not an empty request.
+  try { reply = answer(readFileSync(0)); } catch {
+    reply = refused([{ rule: "unreadable", why: "the reviewer could not finish its answer" }]);
   }
   process.stdout.write(`${JSON.stringify(reply)}\n`);
 }

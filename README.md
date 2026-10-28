@@ -21,7 +21,7 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 Status on 28 October 2026. Spec 0.3.0, its 180 tests and round 15's licence, notices and
 security policy are locked at `3030158`, and every check on GitHub passes. The tests catch 91.8% of
 the bugs planted in round 13's code. Two things are open: round 17's sort of the 293 planted
-bugs the tests miss, which has found and fixed 3 real bugs so far, and 27 decisions the spec
+bugs the tests miss, which has found and fixed 4 real bugs so far, and 27 decisions the spec
 leaves open.
 
 | | Check | Result |
@@ -275,7 +275,7 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 1,604 lines<br/>Node built-ins only<br/>17 rounds"]
+  cod["<b>Code</b> ✅<br/>6 programs, 1,605 lines<br/>Node built-ins only<br/>17 rounds"]
   nxt["<b>Next</b><br/>the 293 surviving planted bugs sorted<br/>27 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
@@ -307,7 +307,7 @@ the checks and files around it, and round 16, which measured the tests.
 | 14 | Make `examples/` the code writer's, check each example's recorded answer, and check the README's figures on every push | No program changed. The examples test fails on a wrong recorded answer, and the README check on a stale figure. All 180 tests pass |
 | 15 | Ready the repository for public release: licence, notices, a security policy and a review gate on main | No program changed but a comment. The project is MIT. The credential patterns copied from CommonAgent/adlc keep their Apache-2.0 notice, and the spec's adapted standard text its CC BY 4.0 credit. The write hook now blocks a write when it cannot run. `tools/handoff.sh` now sets rulesets where a pull request to main needs a code owner's approval and a green check, and only the owner may push past them |
 | 16 | Plant all 3,557 bugs in round 13's code and run the 180 tests on each | The tests caught 91.8%, up from 70.8% before the spec 0.3.0 reopen. Of the bugs the 87 tests missed and that can be matched, 78% are now caught, and no bug caught before is missed now. 293 survive, not yet sorted |
-| 17 | Sort the 293 surviving planted bugs: for each, a request whose answer it changes, or a reason nothing can, then a skeptic's re-check | In progress. `rules.mjs`, 80 sorted: 3 real bugs, all fixed. `import "https:"` let a package load its unshipped tests; an absolute `main` was read inside the package; a file named `.sh` went unnamed |
+| 17 | Sort the 293 surviving planted bugs: for each, a request whose answer it changes, or a reason nothing can, then a skeptic's re-check | In progress, 131 sorted: 4 real bugs, all fixed. `import "https:"` let a package load its unshipped tests; an absolute `main` was read inside the package; a file named `.sh` went unnamed; a valid request at Node's string limit was called "not JSON" |
 
 ## How the tests stay honest
 
