@@ -206,7 +206,9 @@ const shippedSet = (pkg) => {
 };
 const under = (dir, name) => (dir ? `${dir}/${name}` : name);
 const leavesPackage = (path) => path === ".." || path.startsWith("../");
-const packagePath = (dir, target) => posix.normalize(posix.join(dir || ".", target)).replace(/\/+$/, "").replace(/^\.$/, "");
+// Node resolves an absolute `main` from the filesystem's root, outside the package.
+const packagePath = (dir, target) => (posix.isAbsolute(target) ? ".."
+  : posix.normalize(posix.join(dir || ".", target)).replace(/\/+$/, "").replace(/^\.$/, ""));
 
 /** The shipped package.json in a package folder, parsed, or null when there is none. One that
  *  is not a JSON object is read as empty: Node stops at it, and it maps nothing. */
@@ -312,9 +314,10 @@ function jsLoadsUnread(pkg, program, { value, esm, line, undecodable }, urls) {
   }
   if (/^node:/i.test(value)) return false;
   if (NOT_FILES.test(value)) {
-    // A URL is refused here unless SR-08 refuses it already; one that does not parse loads nothing.
+    // A URL is refused here unless SR-08 refuses it already. One that does not parse, such as
+    // `https:`, is a package name to Node, which may load anything, so it is refused too.
     const host = hostOfUrl(value);
-    return host !== null && !urls.some((u) => u.line === line && u.host === host);
+    return host === null || !urls.some((u) => u.line === line && u.host === host);
   }
   if (ABSOLUTE.test(value)) return true;
   const scope = nearestManifest(pkg, program);
@@ -495,7 +498,7 @@ const OTHER_LANGUAGES = new Set([".sh", ".rb", ".go", ".rs", ".java", ".php"]);
 const extensionOf = (path) => {
   const name = path.split("/").pop();
   const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(dot).toLowerCase() : "";
+  return dot >= 0 ? name.slice(dot).toLowerCase() : "";
 };
 
 /** A shipped file that looks like a program this review does not read: one of the named
