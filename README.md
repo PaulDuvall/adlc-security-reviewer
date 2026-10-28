@@ -18,7 +18,7 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 
 ## Where it stands
 
-Status on 28 October 2026. Spec 0.3.0, its 180 tests and round 15's licence, notices and
+Status on 28 October 2026. Spec 0.3.0, its 180 tests and round 15's license, notices and
 security policy are locked at `3030158`, and every check on GitHub passes. The tests catch 91.8% of
 the bugs planted in round 13's code. Round 17 sorted the 293 they miss: 34 showed 17 real
 bugs, all fixed, and 70 more are tests the suite lacks. Round 18's review of those fixes found
@@ -314,7 +314,7 @@ the checks and files around it, and round 16, which measured the tests.
 | 12 | Spec 0.3.0 and 84 new tests from the spec owner's reopen | 3 new tests failed until fixed: a specifier with an escape that cannot be decoded is refused, `process['env']` reads count, and an encoding declaration's line counts `\n` only. All 171 tests pass |
 | 13 | An adversarial review of the reopen, then a comparison with Node of 1,716 environment-read forms | 6 gaps, all fixed: a 4,000-point program ran the reviewer out of memory; a long run of space took it quadratic time; `.mts`, `.cts` and `.pyw` programs went unread; an escape in `process` or `env` hid a read; overlapping credentials leaked a fragment; a `%5C` import was refused. 8 new tests; all 179 pass |
 | 14 | Make `examples/` the code writer's, check each example's recorded answer, and check the README's figures on every push | No program changed. The examples test fails on a wrong recorded answer, and the README check on a stale figure. All 180 tests pass |
-| 15 | Ready the repository for public release: licence, notices, a security policy and a review gate on main | No program changed but a comment. The project is MIT. The credential patterns copied from CommonAgent/adlc keep their Apache-2.0 notice, and the spec's adapted standard text its CC BY 4.0 credit. The write hook now blocks a write when it cannot run. `tools/handoff.sh` now sets rulesets where a pull request to main needs a code owner's approval and a green check, and only the owner may push past them |
+| 15 | Ready the repository for public release: license, notices, a security policy and a review gate on main | No program changed but a comment. The project is MIT. The credential patterns copied from CommonAgent/adlc keep their Apache-2.0 notice, and the spec's adapted standard text its CC BY 4.0 credit. The write hook now blocks a write when it cannot run. `tools/handoff.sh` now sets rulesets where a pull request to main needs a code owner's approval and a green check, and only the owner may push past them |
 | 16 | Plant all 3,557 bugs in round 13's code and run the 180 tests on each | The tests caught 91.8%, up from 70.8% before the spec 0.3.0 reopen. Of the bugs the 87 tests missed and that can be matched, 78% are now caught, and no bug caught before is missed now. 293 survive, not yet sorted |
 | 17 | Sort the 293 surviving planted bugs: for each, a request whose answer it changes, or a reason nothing can, then a skeptic's re-check | 17 real bugs, all fixed. The worst: a URL hidden by `++` after a line end, by `extends /…/` or by `for await (`; a Python import swallowed by an f-string; `import "https:"` loading unshipped tests; an astral character that made the reviewer loop forever. 70 more are tests the suite lacks. Checked against CPython, V8 and Node, with no difference left in what they run |
 | 18 | Attack round 17's fixes: four reviews, a skeptic per finding, each finding run before and after | 27 confirmed, all fixed. 13 were regressions round 17 made, such as an escaped quote in a Python format spec that hid an import, and a property named `for` that hid a URL. 14 were older, such as a host written `☃.example`, `os.getenv(f"API_KEY")`, and a name search that took 42 s; it now takes 133 ms. Checked again against CPython, V8 and Node |
@@ -365,7 +365,7 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 | `docs/traceability.md` | Each requirement, its tests and its program | Spec owner |
 | `agents/security-reviewer/test/`, `conformance/` | The tests and the role checks | Spec owner |
 | `CLAUDE.md`, `.claude/` | The code writer's instructions, and the hook that stops it editing locked files. They configure the AI agent that writes the code; a person using the reviewer needs neither | Spec owner |
-| Everything else: `tools/`, `.github/`, `LOCK.json`, `LICENSE`, `NOTICE`, `SECURITY.md` | The lock, the checks, the licence and the security policy | Spec owner |
+| Everything else: `tools/`, `.github/`, `LOCK.json`, `LICENSE`, `NOTICE`, `SECURITY.md` | The lock, the checks, the license and the security policy | Spec owner |
 | `agents/security-reviewer/scripts/` | The six programs | Code writer |
 | `docs/rounds.md`, `README.md` | The record of each round, and this page | Code writer |
 | `examples/` | Sample agents, the requests [Use it on your agent](#use-it-on-your-agent) runs, and the answer recorded for each | Code writer; the suite checks each answer |
@@ -386,7 +386,7 @@ npm run verify
 
 Node 22.13 or later and git. No dependencies.
 
-## Licence
+## License
 
 MIT: see [LICENSE](LICENSE). Two parts come from other works and keep their own terms. The
 credential patterns in `secrets.mjs` are copied from [CommonAgent/adlc](https://github.com/CommonAgent/adlc)
