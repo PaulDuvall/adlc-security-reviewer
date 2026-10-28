@@ -91,8 +91,11 @@ export function answer(request, options = {}) {
     if (e.code !== "unreadable") throw e;
     return refused([{ rule: "unreadable", why: e.message }, ...spendLimitRefusals(r.owner)]);
   }
-  try { return reviewPackage(pkg, r.owner); } catch {
-    return withheld(refused([{ rule: "unreadable", why: "the reviewer could not finish reading the package's declarations" }], pkg), []);
+  // An error the review raised as unreadable carries a fixed reason; any other is not named,
+  // since it may come from a program or from a declaration.
+  try { return reviewPackage(pkg, r.owner); } catch (e) {
+    const why = e?.code === "unreadable" ? e.message : "the reviewer could not finish reading the package";
+    return withheld(refused([{ rule: "unreadable", why }], pkg), []);
   }
 }
 

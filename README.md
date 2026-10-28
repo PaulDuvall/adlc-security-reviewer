@@ -12,38 +12,23 @@ The role is defined in [ROLES.md §34](https://github.com/CommonAgent/common-age
 Standards, summarized at [agentroles.ai/security-reviewer](https://agentroles.ai/security-reviewer.html),
 and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages.html#security).
 
-> This is an independent implementation by Redacted Ventures LLC. It is not made, reviewed or
-> endorsed by AgentMesh, Inc., by Jeff Schneider, or by the editors of the Agent Development
-> Lifecycle or the Common Agent Standards.
-
 ## Where it stands
 
-Status on 28 October 2026. Spec 0.3.0, its 180 tests and round 15's license, notices and
-security policy are locked at `3030158`, and every check on GitHub passes. The tests catch 91.8% of
-the bugs planted in round 13's code. Round 17 sorted the 293 they miss: 34 showed 17 real
-bugs, all fixed, and 70 more are tests the suite lacks. Round 18's review of those fixes found
-13 regressions and 14 older bugs, all fixed. Round 19's review of round 18 found 14 regressions
-and 14 older bugs, all fixed. Round 20 confirmed 29 of the review of round 19's 32 findings,
-16 of them regressions, and 9 more in the rules for loading code, all fixed. It also rebuilt the
-comparisons with CPython, V8 and Node, which found older bugs the earlier ones never reached,
-all fixed. A review of round 20's own fixes found 22 regressions and 7 older bugs, all fixed.
-Round 21's second review of the last of them found 8 regressions and 4 older bugs, most in how
-Python's `=` debug text is read, all fixed; that reading now matches CPython's own source.
-Round 22's reviews of round 21 and of its own first fixes found 9 regressions and 11 older bugs,
-and checks against V8 and Node found more in sloppy `let` and TypeScript, all fixed. TypeScript is
-now read as Node runs it, its types stripped or transformed. Open: 29 decisions the spec leaves open, the 104 tests round 17 found missing, and URL
-forms the spec leaves unrefused though Node reaches their host.
+Status on 28 October 2026: complete against spec 0.3.0. Its 23 requirements, 180 tests and 4
+role checks all pass, on Node 22 and on Node 26. Open: 29 decisions the spec leaves open, 104
+tests the suite lacks, and some URL forms the spec does not refuse
+([What is still open](#what-is-still-open)).
 
 | | Check | Result |
 |---|---|---|
-| ✅ | Automated checks on GitHub | Pass on `3030158`, the latest re-lock |
+| ✅ | Automated checks on GitHub | Pass on the latest push to `main` |
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
 | ✅ | Tests | 180 of 180 pass. Each one traces to a requirement |
-| ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
+| ✅ | Role checks | 4 of 4 pass: the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires, run by a check written here |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
-| ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 35 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
-| ✅ | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Now, on round 13's code and 180 tests: 91.8% of all 3,557, with 293 surviving, measured before the fixes of rounds 17 to 20. Before the spec 0.3.0 reopen, on 87 tests: 70.8% of 3,464. Round 8: 67.4% of 3,304 |
-| 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [18 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21; round 17 added U22, and round 20 U23. Rounds 19 and 20 list [URL forms SR-08 leaves unrefused](docs/rounds.md#rounds) for the spec owner |
+| ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 35 files, including the spec and the tests. A push that changes any of them turns the checks on GitHub red, unless it also rewrites the checks, which then shows in its diff |
+| ✅ | Planted-bug check | The tests catch 91.8% of 3,557 small bugs planted in copies of the code, against the usual target of 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Last measured on round 13's code, with tools kept outside this repository |
+| 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [18 points where the spec is silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle) |
 
 ## What it does for users
 
@@ -79,7 +64,7 @@ billing key, an empty reason and no limit. The reviewer's output on `main` match
 |---|---|---|
 | The owner installing an agent | A statement of every system the agent reaches, with its access and reason, what it may spend, what it must never do, and the risks the owner accepts by installing it | What the code reaches is checked against the code. The reasons and the "never" list are the publisher's own words, shown as written |
 | The agent's publisher | A refusal that lists every problem found, with the file and line where one applies | Fixes come in one batch, not one problem at a time |
-| The platform or security team | The same answer for the same request every time, stamped with the package's fingerprint (its digest). The reviewer never grants anything itself | The answer can serve as the record of the install decision. Changing one byte of a shipped file changes the fingerprint |
+| The platform or security team | The same answer for the same request on the same Node version, stamped with the package's fingerprint (its digest). The reviewer never grants anything itself | The answer can serve as the record of the install decision. Changing one byte of a shipped file changes the fingerprint |
 
 One judgment stays with a person: whether each stated reason is good enough. The answer shows
 every reason and lists this judgment as not checked.
@@ -128,12 +113,19 @@ The lifecycle does not settle three points yet.
 
 | Need | Detail |
 |---|---|
-| Node 22.13 or later, and a clone of this repo | No dependencies, no install step |
+| Node 22.13 or later, and a clone of this repo | No dependencies, no install step. Node 26 cannot transform TypeScript, so there a package with a TypeScript `enum` or `namespace` is refused `unreadable`: review it on Node 22.13 to 25 |
 | Your agent's folder | `agent-descriptor.json`, `agent-runtime-requirements.json`, every file you ship, and optionally `plugin.json` for the name and version |
 | The owner's spending limit | In millionths of the currency: `5000000` is $5.00 |
 | The owner's number for each ceiling | Only where your runtime requirements list `ceilings` |
 
 ### Run it
+
+Get the reviewer:
+
+```bash
+git clone https://github.com/PaulDuvall/adlc-security-reviewer.git
+cd adlc-security-reviewer
+```
 
 Write the request to `request.json`:
 
@@ -239,7 +231,7 @@ does, even one used only as a name, such as a JSON Schema address
 | Rule | Cause | Usual fix |
 |---|---|---|
 | `bad-request` | The request is not valid JSON, lacks `"review": "v1"`, or names no package | Match the request above |
-| `unreadable` | The folder is missing, a declaration file is not a JSON object, or an `mcp.json` cannot be read | Fix the file it names |
+| `unreadable` | The folder is missing, a declaration file is not a JSON object, an `mcp.json` cannot be read, a shipped file is a link to a file outside the package, or, on Node 26, a TypeScript program needs transforming | Fix what it names. Ship the file a link points to in place of the link |
 | `systems-mismatch` | The two declaration files name different systems | Name each system in both |
 | `no-reason` | A system has a missing or blank `needs` | Say why the agent needs it |
 | `undeclared-reach` | A program contains a web address or reads an unbound credential-like variable, or an MCP server is not a declared system | Declare the system, bind its credential and address, and read both from the environment |
@@ -287,7 +279,7 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 3,235 lines<br/>Node built-ins only<br/>22 rounds"]
+  cod["<b>Code</b> ✅<br/>6 programs, 3,257 lines<br/>Node built-ins only<br/>23 rounds"]
   nxt["<b>Next</b><br/>104 missing tests added<br/>29 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
@@ -296,40 +288,17 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in twenty-two rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
-other rounds attacked the code and fixed what broke, except rounds 10, 14 and 15, which changed
-the checks and files around it, and round 16, which measured the tests.
-[docs/rounds.md](docs/rounds.md) has the full record.
-
-| Round | What was tried | What it found |
-|---|---|---|
-| 1 | Write the six programs | All 58 tests of the first spec pass |
-| 2 | 36 extra checks on generated inputs | 6 bugs the tests missed, all fixed |
-| 3 | Plant 1,578 bugs and see which the tests catch | The tests caught 64%. 4 more real bugs, all fixed |
-| 4 | One targeted attack from the spec review | 1 bug, fixed: the reviewer skipped code placed after a rare line-break character |
-| 5 | Spec 0.2.0 adds two rules: refuse code that loads files the reviewer does not read, and refuse undeclared tool servers. Other rules got stricter | Both built. 72 of 72 tests pass |
-| 6 | Two independent reviews | About 20 ways an agent could load code the reviewer never checked, all fixed |
-| 7 | Four review passes attack the code, and a skeptic re-checks each finding | 14 bugs confirmed and fixed. Python is now read by a tokenizer, not by pattern matching |
-| 8 | A second attack review; 92,000 generated Python programs; a compile check on 6,771 JavaScript programs; 3,304 planted bugs | 7 bugs confirmed and fixed. Python: 0 differences from Python's own reader. JavaScript: no code hidden in 6,771 programs. The tests caught 67.4% of the planted bugs |
-| 9 | Sort the 1,078 planted bugs the tests missed | 16 real bugs, all fixed. Two let an agent past the gate by writing a secret's name or a web address in escape codes |
-| 10 | Make the file lock use git's list of files | Locking now works in any copy of the repo. A review found 7 issues in the change, all fixed. No program changed |
-| 11 | Check the 58 test ideas against current code, then compare every legacy escape with Node | 1 bug, fixed: `require("./test\5710.js")` let an agent load an unread file past the gate. All 4,686 legacy escapes now decode as Node decodes them |
-| 12 | Spec 0.3.0 and 84 new tests from the spec owner's reopen | 3 new tests failed until fixed: a specifier with an escape that cannot be decoded is refused, `process['env']` reads count, and an encoding declaration's line counts `\n` only. All 171 tests pass |
-| 13 | An adversarial review of the reopen, then a comparison with Node of 1,716 environment-read forms | 6 gaps, all fixed: a 4,000-point program ran the reviewer out of memory; a long run of space took it quadratic time; `.mts`, `.cts` and `.pyw` programs went unread; an escape in `process` or `env` hid a read; overlapping credentials leaked a fragment; a `%5C` import was refused. 8 new tests; all 179 pass |
-| 14 | Make `examples/` the code writer's, check each example's recorded answer, and check the README's figures on every push | No program changed. The examples test fails on a wrong recorded answer, and the README check on a stale figure. All 180 tests pass |
-| 15 | Ready the repository for public release: license, notices, a security policy and a review gate on main | No program changed but a comment. The project is MIT. The credential patterns copied from CommonAgent/adlc keep their Apache-2.0 notice, and the spec's adapted standard text its CC BY 4.0 credit. The write hook now blocks a write when it cannot run. `tools/handoff.sh` now sets rulesets where a pull request to main needs a code owner's approval and a green check, and only the owner may push past them |
-| 16 | Plant all 3,557 bugs in round 13's code and run the 180 tests on each | The tests caught 91.8%, up from 70.8% before the spec 0.3.0 reopen. Of the bugs the 87 tests missed and that can be matched, 78% are now caught, and no bug caught before is missed now. 293 survive, not yet sorted |
-| 17 | Sort the 293 surviving planted bugs: for each, a request whose answer it changes, or a reason nothing can, then a skeptic's re-check | 17 real bugs, all fixed. The worst: a URL hidden by `++` after a line end, by `extends /…/` or by `for await (`; a Python import swallowed by an f-string; `import "https:"` loading unshipped tests; an astral character that made the reviewer loop forever. 70 more are tests the suite lacks. Checked against CPython, V8 and Node, with no difference left in what they run |
-| 18 | Attack round 17's fixes: four reviews, a skeptic per finding, each finding run before and after | 27 confirmed, all fixed. 13 were regressions round 17 made, such as an escaped quote in a Python format spec that hid an import, and a property named `for` that hid a URL. 14 were older, such as a host written `☃.example`, `os.getenv(f"API_KEY")`, and a name search that took 42 s; it now takes 133 ms. Checked again against CPython, V8 and Node |
-| 19 | Attack round 18's fixes the same way, then compare the reviewer with Node's URL parser on 160,000 generated URLs | 27 confirmed, all fixed. 14 were regressions round 18 made, such as an escaped URL in a Python format spec that was hidden again, and a time that grew with the square of the URLs. 13 were older, such as a Python name in triple quotes. The URL comparison found one more: `fetch("https://«.evil.example/")` passed, though Node sends it to a host under evil.example; fixed. Some URL forms pass because the spec says so, such as `https:///evil.example/`; they are listed for the spec owner |
-| 20 | Check the review of round 19's 32 findings, attack the rules for loading code again, rebuild the comparisons with CPython, V8 and Node, then attack round 20's own fixes | 29 of the 32 confirmed and 9 more in the rules, all fixed; 16 were regressions round 19 made, such as an escaped URL in a raw Python format spec hidden again. The rebuilt comparisons found older bugs: V8 found code hidden after `break`, `debugger` or `var v` and a line end in 134 of 20,000 programs, and CPython imports hidden behind `(importlib.import_module)(…)`. The review of round 20's fixes found 22 regressions, such as `from` or `let` used as a name hiding a URL, and a 50-byte Python file that never finished, and 7 older bugs; all fixed. Now V8 finds no hidden code in 90,000 programs, and CPython no missed import in 60,000 |
-| 21 | Attack round 20's last fixes, then check the reading of Python's `=` debug text against CPython's own source | 12 confirmed, all fixed. 8 were regressions round 20 made, such as nested debug fields that ran the review out of memory, and an `import_module` call after `match` that was missed. 4 were older, such as a URL in debug text that CPython 3.13 keeps but the review blanked. The reading of debug text now matches CPython 3.12, 3.13 and 3.14 on all 5,308 generated fields, and CPython's f-string comparison misses 1 URL in 54,415 programs, from 87 |
-| 22 | Attack round 21's fixes and its own first fixes, and check the JavaScript reader against V8 and Node's TypeScript stripper statement by statement | 20 confirmed by two reviews, all fixed: 9 regressions, such as `match(f)("tests")` refused as an import, and 11 older bugs, such as an object's `var` key that hid code after it. The statement checks found more: sloppy `let` hid code after it, a regression of round 20, and TypeScript's types hid code in 37 of 119 statements. TypeScript is now read as Node runs it, so none of the 119 hides code, with or without an `enum` that forces Node to transform the file. CPython's f-string comparison now misses 0 URLs and 0 imports in 54,415 programs |
+The Code stage ran in 23 rounds. Round 1 wrote the code. The rounds after it attacked the code
+and fixed what broke: reviews with a skeptic re-checking each finding, bugs planted to test the
+tests, and comparisons with CPython, V8 and Node on generated programs. [docs/rounds.md](docs/rounds.md)
+records each round: what was tried, what failed and what changed.
 
 ## How the tests stay honest
 
-The code writer is an AI agent. A hook stops it from editing the spec or the tests, and the
-checks on GitHub fail on any push that changes them.
+The code writer is an AI agent. A hook blocks its editing tools on the spec, the tests and
+every other locked file, and its settings deny the usual commands that re-lock them or move the
+`handoff` tag. A push that changes a locked file turns the checks on GitHub red. GitHub does
+not refuse the push itself: the red checks and the diff show it.
 
 ```mermaid
 flowchart LR
@@ -348,16 +317,17 @@ flowchart LR
   class ci gate
 ```
 
-Only the spec owner can change the spec or the tests. Each change shows in git as its own
-"Re-lock" commit.
+Only the spec owner changes the spec or the tests, each time in its own "Re-lock" commit, and
+only the spec owner's GitHub account may move the `handoff` tag.
 
 ## What is still open
 
 | Item | Owner | Where |
 |---|---|---|
 | 104 tests round 17 found missing: 70 suite gaps, and 34 planted bugs that showed the 17 bugs it fixed | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#test-ideas-from-round-17) |
-| Optional: apply the two rulesets `tools/handoff.sh` now sets, the owner's bypass on the `handoff` tag and main's review gate. Until then a re-lock lifts the tag's ruleset, and main takes any admin's push | Spec owner | [docs/rounds.md](docs/rounds.md), round 15; `tools/handoff.sh` |
-| 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Needs input from AgentMesh: 4, not yet raised with them | [docs/spec.md](docs/spec.md#open-questions) |
+| The protections on GitHub. Today `main` cannot be deleted or force-pushed, by anyone, and only the spec owner's account may move or delete the `handoff` tag. No ruleset asks for a review or a green check before a push to `main`: the one round 15 set was removed, and the spec owner is the only person with write access | Spec owner: restore that ruleset from `tools/handoff.sh` if anyone else gets write access | [docs/rounds.md](docs/rounds.md), round 23 |
+| Changes to locked files that round 23's audit found: a second way to report a vulnerability, the CI step that decides which stage a commit is in, version and runtime fields, credit notices in the spec, and others | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#for-the-spec-owner-from-round-23) |
+| 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Need input from AgentMesh: 4 | [docs/spec.md](docs/spec.md#open-questions) |
 | 18 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
 | URL forms that pass, though Node's URL parser sends them to a host: some because SR-08 reads them so, such as `https:// x@evil.example/`, and some by the code's own rule that a host it finds past a bracket or quotation mark holds a letter or a digit, such as `` https://«`.evil.example/ `` | Spec owner | [docs/rounds.md](docs/rounds.md#rounds), rounds 19 and 20 |
 | On a developer's own machine, the lock check skips files that local git settings hide: `.git/info/exclude`, global excludes or an untracked `.gitignore`. The checks on GitHub are unaffected | Spec owner; accepted as a known limit | [docs/rounds.md](docs/rounds.md), round 10 |
@@ -389,13 +359,24 @@ npm run verify
 | `npm run readme` | Checks the README's figures against the repository: spec version, tests, rounds, program lines, locked files |
 | `npm run verify` | Runs all four |
 
-Node 22.13 or later and git. No dependencies.
+Node 22.13 or later and git. No dependencies. CI runs Node 22; round 23 ran every check on
+Node 26 too.
+
+## Contributing
+
+Open an issue to report a bug or suggest a change. The checks on GitHub fail on a pull request
+that changes anything outside the Code stage's paths: the six programs, `docs/rounds.md`, this
+README and `examples/`. Changes to the spec, the tests or the checks are the spec owner's, so
+propose those in an issue. Report a way past the reviewer privately, as
+[SECURITY.md](SECURITY.md) says, not in an issue.
+
+The repository is maintained by [@PaulDuvall](https://github.com/PaulDuvall). Most commits are
+by Claude, the AI agent that writes the code under the rules above.
 
 ## License
 
 MIT: see [LICENSE](LICENSE). Two parts come from other works and keep their own terms. The
 credential patterns in `secrets.mjs` are copied from [CommonAgent/adlc](https://github.com/CommonAgent/adlc)
-under Apache-2.0, and `docs/spec.md` adapts passages of the [Common Agent Standards](https://github.com/CommonAgent/common-agent-standards)
+under Apache-2.0, and `docs/spec.md` and the comments of `conformance/security-reviewer-check.mjs`
+adapt passages of the [Common Agent Standards](https://github.com/CommonAgent/common-agent-standards)
 under CC BY 4.0. [NOTICE](NOTICE) has the details.
-
-To report a way past the reviewer, see [SECURITY.md](SECURITY.md).

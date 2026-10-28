@@ -2177,7 +2177,10 @@ const urlKey = (u) => `${u.line}\0${u.host}`;
  *  where it was ({ code }); where that cannot be done, as for an `enum`, transformed, with a
  *  map from each offset of the code to where in the text it came from ({ code, place }); or
  *  null where Node cannot read it at all. Any other failure of Node's stripper may leave it
- *  failing for every file after, so the review stops, and the package is refused unreadable. */
+ *  failing for every file after, so the review stops, and the package is refused unreadable.
+ *  Node 26 removed the transform mode, so there a file that needs it cannot be read as Node 22
+ *  to 25 run it; read as written, its types could hide code, so the package is refused
+ *  unreadable, with that reason. */
 function typeScriptRun(text) {
   const readable = (e) => e?.code === "ERR_INVALID_TYPESCRIPT_SYNTAX" || e?.code === "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX";
   try {
@@ -2191,6 +2194,11 @@ function typeScriptRun(text) {
   try {
     out = stripTypeScriptTypes(text, { mode: "transform", sourceMap: true });
   } catch (e) {
+    if (e?.code === "ERR_INVALID_ARG_VALUE") {
+      const gone = new Error("a TypeScript program needs Node to transform it, as for an enum, and this Node cannot: review it on Node 22.13 to 25");
+      gone.code = "unreadable";
+      throw gone;
+    }
     if (!readable(e)) throw e;
     return null;
   }

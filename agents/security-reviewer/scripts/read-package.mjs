@@ -1,8 +1,8 @@
 // Read the package: the descriptor, the runtime requirements and every shipped file, and
 // the package digest that binds an answer to those bytes (docs/spec.md, Terms; SR-05, SR-19).
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, join, sep } from "node:path";
 
 const UNSHIPPED_SEGMENTS = new Set(["test", "tests", "node_modules", ".git"]);
 const DESCRIPTOR = ["agent-descriptor.json", "descriptor.json"];
@@ -29,6 +29,9 @@ export function packageDigest(files) {
   return `sha256:${sha256(lines)}`;
 }
 
+/** True when target, a real path, is root or lies under it. */
+const within = (root, target) => target === root || target.startsWith(root.endsWith(sep) ? root : root + sep);
+
 function unreadable(why) {
   const e = new Error(why);
   e.code = "unreadable";
@@ -36,9 +39,12 @@ function unreadable(why) {
 }
 
 /** Every shipped file under dir. Unshipped folders are not entered, so their files are never
- *  read. A symbolic link to a folder is not followed, so a loop cannot hold the walk. */
+ *  read. A symbolic link to a folder is not followed, so a loop cannot hold the walk. A link to
+ *  a file outside the package makes the package unreadable: the review would read the
+ *  reviewer's own file, and an install the installer's, so what it passed is not what runs. */
 function shippedFiles(dir) {
   const out = [];
+  const root = realpathSync(dir);
   const walk = (abs, rel) => {
     for (const entry of readdirSync(abs, { withFileTypes: true })) {
       const path = rel ? `${rel}/${entry.name}` : entry.name;
@@ -49,6 +55,11 @@ function shippedFiles(dir) {
       }
       const isFile = entry.isSymbolicLink() ? statSync(full).isFile() : entry.isFile();
       if (!isFile || !ships(path)) continue;
+      // The path is not named: this comes before the credential search, which keeps a
+      // credential out of every name an answer repeats (SR-13).
+      if (entry.isSymbolicLink() && !within(root, realpathSync(full))) {
+        throw unreadable("a shipped file is a link to a file outside the package");
+      }
       const bytes = readFileSync(full);
       out.push({ path, bytes, sha256: sha256(bytes) });
     }
