@@ -1,6 +1,6 @@
 # adlc-security-reviewer
 
-[![verify](https://github.com/RedactedVentures/adlc-security-reviewer/actions/workflows/verify.yml/badge.svg)](https://github.com/RedactedVentures/adlc-security-reviewer/actions/workflows/verify.yml)
+[![verify](https://github.com/PaulDuvall/adlc-security-reviewer/actions/workflows/verify.yml/badge.svg)](https://github.com/PaulDuvall/adlc-security-reviewer/actions/workflows/verify.yml)
 
 A security gate for AI agents. Before anyone installs an agent, this reviewer reads the agent's
 package. It checks what the code really reaches against what the package declares. Then it
