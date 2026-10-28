@@ -312,10 +312,12 @@ function jsLoadsUnread(pkg, program, { value, esm, line, undecodable }, urls) {
     const target = relativeTarget(pkg, program, value, esm);
     return target !== null && !loadsShipped(pkg, target.path, target.folderOnly);
   }
-  if (/^node:/i.test(value)) return false;
+  // A `node:` URL names a built-in, or nothing Node will load.
+  if (/^node:/i.test(value) && URL.canParse(value)) return false;
   if (NOT_FILES.test(value)) {
     // A URL is refused here unless SR-08 refuses it already. One that does not parse, such as
-    // `https:`, is a package name to Node, which may load anything, so it is refused too.
+    // `https:` or `node://[`, is a package name to Node, which may load anything, so it is
+    // refused too.
     const host = hostOfUrl(value);
     return host === null || !urls.some((u) => u.line === line && u.host === host);
   }
@@ -383,9 +385,12 @@ function unreadCode(pkg) {
       out.push(refuse("unread-code", `the program declares the source encoding ${coding.name}, which this review does not read`,
         { system: `coding: ${coding.name}`, file: p.path, line: coding.line }));
     }
+    // One refusal per system and line, though two readings may each load it.
+    const refused = new Set();
     for (const i of p.reach.imports) {
       const system = python ? pythonUnread(i) : jsLoadsUnread(pkg, p.path, i, p.reach.urls) ? i.specifier : null;
-      if (system !== null) {
+      if (system !== null && !refused.has(`${i.line}\0${system}`)) {
+        refused.add(`${i.line}\0${system}`);
         out.push(refuse("unread-code", `the program loads ${system}, which this review does not read`,
           { system, file: p.path, line: i.line }));
       }

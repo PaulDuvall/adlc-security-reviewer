@@ -20,9 +20,9 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 
 Status on 28 October 2026. Spec 0.3.0, its 180 tests and round 15's licence, notices and
 security policy are locked at `3030158`, and every check on GitHub passes. The tests catch 91.8% of
-the bugs planted in round 13's code. Two things are open: round 17's sort of the 293 planted
-bugs the tests miss, which has found and fixed 4 real bugs so far, and 27 decisions the spec
-leaves open.
+the bugs planted in round 13's code. Round 17 sorted the 293 they miss: 34 showed 17 real
+bugs, all fixed, and 70 more are tests the suite lacks. Open: 28 decisions the spec leaves
+open, and the 104 tests round 17 found missing.
 
 | | Check | Result |
 |---|---|---|
@@ -32,8 +32,8 @@ leaves open.
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 35 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
-| ✅ | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Now, on round 13's code and 180 tests: 91.8% of all 3,557, with 293 surviving. Before the spec 0.3.0 reopen, on 87 tests: 70.8% of 3,464. Round 8: 67.4% of 3,304 |
-| 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [16 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21 |
+| ✅ | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Now, on round 13's code and 180 tests: 91.8% of all 3,557, with 293 surviving, measured before round 17's fixes. Before the spec 0.3.0 reopen, on 87 tests: 70.8% of 3,464. Round 8: 67.4% of 3,304 |
+| 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [17 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21; round 17 added U22 |
 
 ## What it does for users
 
@@ -275,8 +275,8 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 1,605 lines<br/>Node built-ins only<br/>17 rounds"]
-  nxt["<b>Next</b><br/>the 293 surviving planted bugs sorted<br/>27 open decisions settled"]
+  cod["<b>Code</b> ✅<br/>6 programs, 1,662 lines<br/>Node built-ins only<br/>17 rounds"]
+  nxt["<b>Next</b><br/>104 missing tests added<br/>28 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
   classDef next stroke:#9a6700,stroke-width:2px,stroke-dasharray:4
@@ -307,7 +307,7 @@ the checks and files around it, and round 16, which measured the tests.
 | 14 | Make `examples/` the code writer's, check each example's recorded answer, and check the README's figures on every push | No program changed. The examples test fails on a wrong recorded answer, and the README check on a stale figure. All 180 tests pass |
 | 15 | Ready the repository for public release: licence, notices, a security policy and a review gate on main | No program changed but a comment. The project is MIT. The credential patterns copied from CommonAgent/adlc keep their Apache-2.0 notice, and the spec's adapted standard text its CC BY 4.0 credit. The write hook now blocks a write when it cannot run. `tools/handoff.sh` now sets rulesets where a pull request to main needs a code owner's approval and a green check, and only the owner may push past them |
 | 16 | Plant all 3,557 bugs in round 13's code and run the 180 tests on each | The tests caught 91.8%, up from 70.8% before the spec 0.3.0 reopen. Of the bugs the 87 tests missed and that can be matched, 78% are now caught, and no bug caught before is missed now. 293 survive, not yet sorted |
-| 17 | Sort the 293 surviving planted bugs: for each, a request whose answer it changes, or a reason nothing can, then a skeptic's re-check | In progress, 131 sorted: 4 real bugs, all fixed. `import "https:"` let a package load its unshipped tests; an absolute `main` was read inside the package; a file named `.sh` went unnamed; a valid request at Node's string limit was called "not JSON" |
+| 17 | Sort the 293 surviving planted bugs: for each, a request whose answer it changes, or a reason nothing can, then a skeptic's re-check | 17 real bugs, all fixed. The worst: a URL hidden by `++` after a line end, by `extends /…/` or by `for await (`; a Python import swallowed by an f-string; `import "https:"` loading unshipped tests; an astral character that made the reviewer loop forever. 70 more are tests the suite lacks. Checked against CPython, V8 and Node, with no difference left in what they run |
 
 ## How the tests stay honest
 
@@ -338,10 +338,10 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 
 | Item | Owner | Where |
 |---|---|---|
-| Sort the 293 planted bugs the tests miss, and fix each real bug the sort finds | Code writer, running now | [docs/rounds.md](docs/rounds.md), round 17 |
+| 104 tests round 17 found missing: 70 suite gaps, and 34 planted bugs that showed the 17 bugs it fixed | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#test-ideas-from-round-17) |
 | Optional: apply the two rulesets `tools/handoff.sh` now sets, the owner's bypass on the `handoff` tag and main's review gate. Until then a re-lock lifts the tag's ruleset, and main takes any admin's push | Spec owner | [docs/rounds.md](docs/rounds.md), round 15; `tools/handoff.sh` |
 | 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Needs input from AgentMesh: 4, not yet raised with them | [docs/spec.md](docs/spec.md#open-questions) |
-| 16 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
+| 17 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
 | On a developer's own machine, the lock check skips files that local git settings hide: `.git/info/exclude`, global excludes or an untracked `.gitignore`. The checks on GitHub are unaffected | Spec owner; accepted as a known limit | [docs/rounds.md](docs/rounds.md), round 10 |
 
 ## How this repository is built

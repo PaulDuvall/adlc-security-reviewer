@@ -36,7 +36,7 @@ const JS_ESCAPED_CHAR = String.raw`\\u[0-9a-fA-F]{4}|\\u\{[0-9a-fA-F]+\}`;
 const JS_WORD = new RegExp(`(?:[\\p{ID_Continue}$${String.fromCharCode(0x200c, 0x200d)}]|${JS_ESCAPED_CHAR})+`, "uy");
 const JS_KEYWORDS_BEFORE_EXPRESSION = new Set([
   "return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await",
-  "default",
+  "default", "extends",
 ]);
 // A `)` closing the condition of one of these is followed by a statement, so a `/` there
 // begins a regular expression rather than a division.
@@ -206,7 +206,8 @@ function readJavaScript(text, prefix, goal) {
         expectValue = !afterDot && JS_KEYWORDS_BEFORE_EXPRESSION.has(word[0]);
         // In a module `await` and `yield` are always keywords; `of` is one only in a for-of.
         unsure = expectValue && JS_CONTEXTUAL_KEYWORDS.has(word[0]) && (goal !== "module" || word[0] === "of");
-        lastWord = word[0];
+        // In `for await (…)` the `(` opens the for's condition, as after `for`.
+        lastWord = !afterDot && word[0] === "await" && lastWord === "for" ? "for" : word[0];
         lastWasName = afterDot;
         lastToken = !afterDot && (word[0] === "else" || word[0] === "do") ? word[0] : "value";
         afterDot = false;
@@ -214,8 +215,9 @@ function readJavaScript(text, prefix, goal) {
         lineStart = false;
         continue;
       }
-      // `a++ / 2` divides: a `++` or `--` after a value leaves a value.
-      if ((c === "+" || c === "-") && d === c && !expectValue) {
+      // `a++ / 2` divides: a `++` or `--` after a value leaves a value. No line end may come
+      // before a postfix one, so after a line end it is a prefix and a value follows.
+      if ((c === "+" || c === "-") && d === c && !expectValue && !lineStart) {
         emit(c + d);
         i += 2;
         after();
@@ -302,7 +304,8 @@ function pythonTokens(text) {
   const breakLength = (i) => (text.startsWith("\r\n", i) ? 2 : 1);
 
   // Code from i, up to the `}` that closes a replacement field when inField, else to the end.
-  function code(i, inField) {
+  // `close` is the quote of the f-string whose field this is.
+  function code(i, inField, close) {
     let depth = 0;
     while (i < n) {
       const c = text[i];
@@ -325,7 +328,7 @@ function pythonTokens(text) {
       }
       if (c === "'" || c === '"') { i = string(i, i, inField); continue; }
       if (inField && !depth && c === "}") return i + 1;
-      if (inField && !depth && c === ":") return formatSpec(i + 1);
+      if (inField && !depth && c === ":") return formatSpec(i + 1, close);
       if (c === "(" || c === "[" || c === "{") depth += 1;
       else if ((c === ")" || c === "]" || c === "}") && depth) depth -= 1;
       tokens.push({ type: "op", start: i, end: i + 1, text: c, field: inField });
@@ -334,12 +337,17 @@ function pythonTokens(text) {
     return n;
   }
 
-  // A format spec is text with fields of its own, up to the `}` that closes its field.
-  function formatSpec(i) {
+  // A format spec is text with fields of its own, up to the `}` that closes its field. As
+  // CPython's tokenizer reads it, a `{` there opens a field, `{{` too, until one of its fields
+  // has closed; after that `{{` is a literal brace (3.13 and later, which 3.12 rejects). The
+  // f-string's own quote ends the f-string even before that `}`, and so does a line end in a
+  // one-quote f-string, as 3.14 reads it.
+  function formatSpec(i, close) {
+    let afterField = false;
     while (i < n) {
-      // `{{` is a literal brace there (Python 3.13 and later; 3.12 rejects it).
-      if (text.startsWith("{{", i)) { i += 2; continue; }
-      if (text[i] === "{") { i = code(i + 1, true); continue; }
+      if (text.startsWith(close, i) || (close.length === 1 && (text[i] === "\n" || text[i] === "\r"))) return i;
+      if (afterField && text.startsWith("{{", i)) { i += 2; continue; }
+      if (text[i] === "{") { i = code(i + 1, true, close); afterField = true; continue; }
       if (text[i] === "}") return i + 1;
       i += 1;
     }
@@ -366,7 +374,7 @@ function pythonTokens(text) {
       if (close.length === 1 && (c === "\n" || c === "\r")) { token.body[1] = j; token.end = j; return j; }
       if (formatted && c === "{") {
         if (text[j + 1] === "{") { j += 2; continue; }
-        j = code(j + 1, true);
+        j = code(j + 1, true, close);
         continue;
       }
       j += 1;
@@ -446,14 +454,16 @@ const JS_ENV_READS = [
 const JS_ENV_DESTRUCTURING = new RegExp(String.raw`\{([^{}]*)\}\s*=\s*${JS_ENV}`, "gu");
 
 /** The matches of a JavaScript environment pattern whose parts, from group `k`, decode to
- *  `process` and `env`. After any other match the search resumes one place on, so a read
- *  inside a longer chain, such as `globalThis.process.env.KEY`, is still found. */
+ *  `process` and `env`. After any other match the search resumes one character on, so a read
+ *  inside a longer chain, such as `globalThis.process.env.KEY`, is still found. One character
+ *  is a whole code point: a `u` pattern set inside a surrogate pair starts again at the pair,
+ *  and would match the same text forever. */
 function envMatches(code, pattern, k) {
   const found = [];
   pattern.lastIndex = 0;
   for (let m = pattern.exec(code); m; m = pattern.exec(code)) {
     if (jsValue(m[k]) === "process" && jsValue(m[k + 1] ?? m[k + 2] ?? m[k + 3] ?? m[k + 4]) === "env") found.push(m);
-    else pattern.lastIndex = m.index + 1;
+    else pattern.lastIndex = m.index + (code.codePointAt(m.index) > 0xffff ? 2 : 1);
   }
   return found;
 }
@@ -476,10 +486,13 @@ function destructured(code, lineAt) {
     let offset = m.index + 1;
     for (const item of m[1].split(",")) {
       const key = DESTRUCTURED_KEY.exec(item);
-      const name = key && jsValue(key.groups.dq ?? key.groups.sq ?? key.groups.plain);
-      if (name) {
+      if (key) {
+        const raw = key.groups.dq ?? key.groups.sq ?? key.groups.plain;
+        const name = jsValue(raw);
         const at = offset + (key.indices.groups.dq ?? key.indices.groups.sq ?? key.indices.groups.plain)[0];
-        found.push({ name, line: lineAt(at), at });
+        // A name this review cannot decode is named as written (SR-09).
+        if (name === null) found.push({ name: raw, undecodable: true, line: lineAt(at), at });
+        else if (name) found.push({ name, line: lineAt(at), at });
       }
       offset += item.length + 1;
     }
@@ -493,10 +506,14 @@ function envIn(code, language, lineAt) {
   for (const pattern of python ? PY_ENV_READS : JS_ENV_READS) {
     for (const m of python ? code.matchAll(pattern) : envMatches(code, pattern, 1)) {
       const raw = python ? m[2] ?? m[3] : m[6] ?? m[7] ?? m[8];
-      const name = python ? (/[rR]/.test(m[1]) ? raw : pythonDecode(raw)) : jsValue(raw);
-      if (!name) continue;
-      // A name this review cannot decode is named as written.
-      env.push(name.includes(UNREADABLE)
+      const rawString = python && /[rR]/.test(m[1]);
+      const name = rawString ? raw : python ? pythonDecode(raw) : jsValue(raw);
+      // A name this review cannot decode is named as written (SR-09): one with a malformed
+      // JavaScript escape, or a Python \N{…} naming anything but printable ASCII. A name that
+      // holds U+FFFD itself decodes like any other.
+      const undecodable = python ? !rawString && pythonUnnamed(raw) : name === null;
+      if (!undecodable && !name) continue;
+      env.push(undecodable
         ? { name: raw, undecodable: true, line: lineAt(m.index), at: m.index }
         : { name, line: lineAt(m.index), at: m.index });
     }
@@ -547,13 +564,16 @@ const CALL_ENDS = /\s*[,)]/y;
 const JS_ESCAPE = /\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|(\r\n|[\n\r\u2028\u2029])|([0-3][0-7]{0,2}|[4-7][0-7]?)|([\s\S]))/g;
 const JS_SINGLE_ESCAPES = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
 
-/** A JavaScript string literal's value, its escapes decoded. Null when one is malformed. */
+/** A JavaScript string literal's value, its escapes decoded. Null when one is malformed: a
+ *  code point above U+10FFFF, or a `\u` or `\x` without its digits, such as `\u{}`, which V8
+ *  rejects, so the literal has no value. */
 function jsValue(body) {
   try {
     return body.replace(JS_ESCAPE, (_, point, unit, hex, _continued, octal, other) => {
       if (point) return String.fromCodePoint(parseInt(point, 16));
       if (unit || hex) return String.fromCharCode(parseInt(unit ?? hex, 16));
       if (octal) return String.fromCharCode(parseInt(octal, 8));
+      if (other === "u" || other === "x") throw new SyntaxError(`a malformed \\${other} escape`);
       if (other) return JS_SINGLE_ESCAPES[other] ?? other;
       return ""; // a line continuation
     });
@@ -596,6 +616,12 @@ function pythonDecode(body) {
     if (named !== undefined) return PY_ASCII_NAMES.get(named.toUpperCase()) ?? UNREADABLE;
     return continued ? "" : PY_SINGLE_ESCAPES[single];
   });
+}
+
+/** Whether a Python string body has a \N{…} that names anything but printable ASCII. */
+function pythonUnnamed(body) {
+  for (const m of body.matchAll(PY_ESCAPE)) if (m[6] !== undefined && !PY_ASCII_NAMES.has(m[6].toUpperCase())) return true;
+  return false;
 }
 const PY_SINGLE_ESCAPES = { "\\": "\\", "'": "'", '"': '"', a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
 // A PEP 263 declaration, on the first line or the second.
@@ -691,7 +717,8 @@ function pythonImports(text, tokens, lineAt) {
     const value = pythonValue(text, parts);
     if (value === undefined) continue;
     const at = parts[0].start;
-    const written = parts.map((p) => text.slice(p.start, p.end)).join(" ");
+    // The literal as written: adjacent parts with what stands between them, and nothing added.
+    const written = text.slice(parts[0].start, parts.at(-1).end);
     imports.push({ specifier: value ?? written, names: [], ...(value === null ? { undecodable: true } : {}), line: lineAt(at), at });
   }
   return imports;
@@ -708,16 +735,39 @@ function pythonCoding(text) {
 
 const inOrder = (found) => found.sort((a, b) => a.at - b.at).map(({ at: _at, ...rest }) => rest);
 
+/** A function from an index of a body's decoded value to where in the body that character was
+ *  written, for indexes given in increasing order. An escape decodes the same wherever it
+ *  stands, so the body is walked once, an escape at a time; a character an escape gives is
+ *  placed at that escape. */
+function placer(body, escapes, decode) {
+  const found = body.matchAll(escapes);
+  let next = found.next().value;
+  let length = 0; // the decoded length of the body before `last`
+  let last = 0;
+  return (index) => {
+    while (next && length + next.index - last <= index) {
+      const piece = decode(next[0]) ?? "";
+      if (length + next.index - last + piece.length > index) return next.index;
+      length += next.index - last + piece.length;
+      last = next.index + next[0].length;
+      next = found.next().value;
+    }
+    return last + index - length;
+  };
+}
+
 // A URL written with escapes in a string still names its host (SR-08): each literal whose text
-// holds a backslash is read again as it decodes.
-function literalUrls(text, spans, decode, lineAt) {
+// holds a backslash is read again as it decodes, and the URL is placed where it begins.
+function literalUrls(text, spans, escapes, decode, lineAt) {
   const urls = [];
   for (const [start, end] of spans) {
     const body = text.slice(start, end);
     if (!body.includes("\\")) continue;
+    const writtenAt = placer(body, escapes, decode);
     for (const m of (decode(body) ?? "").matchAll(URL_IN_CODE)) {
       const host = hostOf(m[1], m[2]);
-      if (host) urls.push({ host, line: lineAt(start), at: start });
+      const at = start + writtenAt(m.index);
+      if (host) urls.push({ host, line: lineAt(at), at });
     }
   }
   return urls;
@@ -748,7 +798,7 @@ export function findReach(source, language, path = "") {
     const tokens = pythonTokens(text);
     const code = blankPythonComments(text, tokens);
     const strings = tokens.filter((t) => t.type === "string" && !/[rR]/.test(t.prefix)).map((t) => t.body);
-    gather(urls, [...urlsIn(code, lineAt), ...literalUrls(text, strings, pythonDecode, lineAt)], urlKey);
+    gather(urls, [...urlsIn(code, lineAt), ...literalUrls(text, strings, PY_ESCAPE, pythonDecode, lineAt)], urlKey);
     gather(env, envIn(code, language, lineAt), (e) => `${e.at}\0${e.name}`);
     imports = pythonImports(text, tokens, lineAt);
     spawns = spawnsIn(language, imports, tokens, lineAt);
@@ -761,9 +811,11 @@ export function findReach(source, language, path = "") {
     // reading's misreading hides code and no mix of two readings makes up code.
     const found = new Map();
     for (const r of javaScriptReadings(text, goal)) {
-      gather(urls, [...urlsIn(r.code, lineAt), ...literalUrls(text, r.literals, jsValue, lineAt)], urlKey);
+      gather(urls, [...urlsIn(r.code, lineAt), ...literalUrls(text, r.literals, JS_ESCAPE, jsValue, lineAt)], urlKey);
       gather(env, envIn(r.code, language, lineAt), (e) => `${e.at}\0${e.name}`);
-      gather(found, jsImports(r.code, r.hollowed, lineAt), (i) => `${i.at}\0${i.specifier}`);
+      // The same text read as an ES import by one reading and a require by another is two
+      // imports: Node resolves the two differently.
+      gather(found, jsImports(r.code, r.hollowed, lineAt), (i) => `${i.at}\0${i.specifier}\0${i.esm}`);
     }
     imports = [...found.values()];
     spawns = spawnsIn(language, imports, null, lineAt);
