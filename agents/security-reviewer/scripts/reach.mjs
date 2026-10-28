@@ -1,6 +1,7 @@
 // Find what a program reaches: URLs in its code, the environment variables it reads, and
 // whether it starts other processes (SR-08, SR-09, SR-17). Comments are blanked first, with
 // their line breaks kept, so every finding keeps its line and no comment counts.
+import { stripTypeScriptTypes } from "node:module";
 
 const LANGUAGES = {
   ".mjs": "javascript", ".js": "javascript", ".cjs": "javascript", ".ts": "javascript", ".mts": "javascript", ".cts": "javascript",
@@ -41,6 +42,12 @@ const JS_KEYWORDS_BEFORE_EXPRESSION = new Set([
 // A `)` closing the condition of one of these is followed by a statement, so a `/` there
 // begins a regular expression rather than a division.
 const JS_KEYWORDS_BEFORE_CONDITION = new Set(["if", "while", "for", "with"]);
+// Words that no declared name may be, so that `let` before one is a plain name.
+const JS_RESERVED = new Set([
+  "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum", "export",
+  "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null", "return", "super",
+  "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
+]);
 // Words that a name on the next line may follow in the same statement, TypeScript's included.
 const JS_TAKES_NEXT = new Set([
   "function", "class", "async", "get", "set", "static", "var", "let", "const", "import", "export", "try", "finally",
@@ -124,7 +131,8 @@ function readJavaScript(text, prefix, goal) {
   // a TypeScript type follows the name just declared.
   const declarations = [];
   // Whether a line end just followed one of its names, so that a `,`, `=` or `:` next goes on
-  // with it; "typed" after its type, which `|`, `&`, `.`, `<` or `[` may go on with too.
+  // with it; "typed" after its type, which `|`, `&`, `.` or `<` may go on with too, but not
+  // `[`: no line end may come before an array type's.
   let resumes = false;
   let brackets = 0; // how many `[` are open
   let substitutions = 0; // how many template substitutions are open
@@ -198,23 +206,46 @@ function readJavaScript(text, prefix, goal) {
     if (lineStart && !expectValue && !unsure && binding === null && declarations.at(-1)?.at === level()
       && (lastWord === null || lastWasName || !JS_TAKES_NEXT.has(lastWord))) declarations.pop();
   };
-  // Where a statement may begin, so that `let` there may begin a declaration.
-  const startsStatement = () => lastToken === null || [";", "{", "}", ")cond", "else", "do", ":"].includes(lastToken)
-    || (lastToken === "(" && parens.at(-1) === "for") || (lineStart && !expectValue && !unsure)
-    || (!lastWasName && (lastWord === "export" || lastWord === "declare"));
-  // Whether a `let` that ends at i declares: a name, `[` or `{` follows it. Elsewhere, in a
-  // script, it is a plain name.
-  const letDeclares = (i) => {
+  // Where a statement list may go on, so that `let` there may begin a declaration: not as the
+  // one statement after `if (…)`, `while (…)`, `for (…)`, `with (…)`, `else` or `do`, where no
+  // declaration may stand. After a `:` it may be a case's (yes) or a label's (no), or part of
+  // an expression: "choice".
+  const startsStatement = () => {
+    if (lastToken === ":") return "choice";
+    return lastToken === null || [";", "{", "}"].includes(lastToken)
+      || (lastToken === "(" && parens.at(-1) === "for") || (lineStart && !expectValue && !unsure)
+      || (!lastWasName && (lastWord === "export" || lastWord === "declare"));
+  };
+  // Whether a name follows a `type` that ends at i on its line, as in `type A = B`.
+  const aliasFollows = (i) => {
+    while (i < n && (text[i] === " " || text[i] === "\t")) i += 1;
+    JS_WORD.lastIndex = i;
+    const next = JS_WORD.exec(text);
+    return next !== null && !/^\d/.test(next[0]) && !JS_RESERVED.has(next[0]);
+  };
+  // Where the next token after i begins, past space and comments, a script's `<!--` and a
+  // line's leading `-->` too where the reading may be a script's.
+  const nextToken = (i) => {
+    let atLine = false;
     while (i < n) {
-      if (JS_SPACE.test(text[i])) i += 1;
-      else if (text.startsWith("//", i)) i = lineComment(i);
-      else if (text.startsWith("/*", i)) i = blockComment(i);
-      else break;
+      const c = text[i];
+      if (JS_SPACE.test(c)) { if (endsLine(c)) atLine = true; i += 1; continue; }
+      let end = -1;
+      if (text.startsWith("//", i) || (script !== false && (text.startsWith("<!--", i) || (atLine && text.startsWith("-->", i))))) end = lineComment(i);
+      else if (text.startsWith("/*", i)) { end = blockComment(i); if (endsLine(text.slice(i, end))) atLine = true; }
+      if (end === -1) break;
+      i = end;
     }
+    return i;
+  };
+  // Whether a `let` that ends at i declares: a name, `[` or `{` follows it. Elsewhere, in a
+  // script, it is a plain name, and so it is before a word no name may be, such as `this`.
+  const letDeclares = (i) => {
+    i = nextToken(i);
     if (text[i] === "[" || text[i] === "{") return true;
     JS_WORD.lastIndex = i;
     const next = JS_WORD.exec(text);
-    return next !== null && !/^\d/.test(next[0]) && next[0] !== "in" && next[0] !== "instanceof";
+    return next !== null && !/^\d/.test(next[0]) && !JS_RESERVED.has(next[0]);
   };
   // A line end, or a comment holding one. After `return` or `yield` it ends the statement, as
   // no line end may come between either and its operand, so a `{` there opens a block. After
@@ -225,10 +256,12 @@ function readJavaScript(text, prefix, goal) {
     lineStart = true;
     if (!lastWasName && (lastWord === "return" || lastWord === "yield")) lastToken = ";";
     const top = declarations.at(-1);
-    if (top?.at === level() && binding === null) top.wrapped = true;
     // No type has a `/`: after a declared name's type, a line end ends the declaration, so a
     // `/` next begins a regular expression, unless the next line goes on with it.
-    if (top?.typed && top.at === level() && binding === null && !expectValue && !unsure) {
+    const typedEnd = top?.typed && top.at === level() && binding === null && !unsure
+      && (!expectValue || (!lastWasName && lastWord === "void"));
+    if (top?.at === level() && binding === null && !typedEnd) top.wrapped = true;
+    if (typedEnd) {
       expectValue = true;
       lastToken = ";";
       resumes = "typed";
@@ -260,7 +293,7 @@ function readJavaScript(text, prefix, goal) {
       if (html && script === null) script = decide(true);
       if (resumes && !/\s/.test(c) && !(c === "/" && (d === "/" || d === "*")) && !(html && script)) {
         // A `=` or `:` goes on with the same name, with its initializer or its type.
-        if (c !== "," && c !== "=" && c !== ":" && !(resumes === "typed" && "|&.<[".includes(c))) declarations.pop();
+        if (c !== "," && c !== "=" && c !== ":" && !(resumes === "typed" && "|&.<".includes(c))) declarations.pop();
         resumes = false;
       }
       // A hashbang may follow a byte order mark, which findReach turns into a space.
@@ -314,11 +347,16 @@ function readJavaScript(text, prefix, goal) {
         i += word[0].length;
         const label = keyword !== null && !lineStart && !lastWasName && (lastWord === "break" || lastWord === "continue");
         // Where a name is due, `let` is that name, as in a script's `var let`.
-        const declares = keyword === "var" || keyword === "const"
-          || (keyword === "let" && binding !== "name" && binding !== "maybe" && startsStatement() && letDeclares(i));
-        if (declares) {
+        const starts = keyword === "let" && binding !== "name" && binding !== "maybe" ? startsStatement() : false;
+        // `var` and `const` declare, but where a `:`, `(`, `=`, `,` or `}` follows them, as in
+        // `{ var: 1 }`, they are keys.
+        const declares = ((keyword === "var" || keyword === "const") && !":(=,}".includes(text[nextToken(i)] ?? "\0"))
+          || (starts !== false && letDeclares(i) && (starts === true || decide(true)));
+        // TypeScript's `type A = …` declares a type, which a line end may end as it ends one after a name.
+        const alias = keyword === "type" && !declares && binding === null && startsStatement() === true && aliasFollows(i);
+        if (declares || alias) {
           while (declarations.length && declarations.at(-1).at >= level()) declarations.pop();
-          declarations.push({ at: level(), wrapped: false });
+          declarations.push({ at: level(), wrapped: false, alias });
           binding = "name";
         } else binding = keyword !== null && binding === "name" ? "after" : keyword !== null && binding === "maybe" ? "maybe after" : null;
         if (keyword === "import" || keyword === "export") {
@@ -387,6 +425,7 @@ function readJavaScript(text, prefix, goal) {
       i += 1;
       if (endsLine(c)) { lineEnded(); continue; }
       if (/\s/.test(c)) continue;
+      const startedLine = lineStart;
       lineStart = false;
       lastWord = null;
       endsAtLine = false;
@@ -402,7 +441,8 @@ function readJavaScript(text, prefix, goal) {
       if (top?.at === level()) {
         // A `:` after a declared name begins its TypeScript type, which an initializer or the
         // next name ends.
-        if (c === ":" && binding === "after") top.typed = true;
+        if (c === ":" && (binding === "after" || binding === "maybe after")) top.typed = true;
+        else if (c === "=" && top.alias && text[i] !== ">" && text[i] !== "=") top.typed = true;
         else if (c === "," || (c === "=" && text[i] !== ">" && text[i] !== "=")) top.typed = false;
       }
       binding = c === "," && top?.at === level() ? (top.wrapped ? "maybe" : "name") : null;
@@ -426,6 +466,8 @@ function readJavaScript(text, prefix, goal) {
       } else if (closed) {
         expectValue = closed !== "object";
         if (closed === "object") lastToken = "value";
+      } else if (c === "!" && !expectValue && !startedLine && text[i] !== "=") {
+        lastToken = "value"; // TypeScript's `x!`, still a value: in JavaScript a `!` there is no operator
       } else expectValue = c !== "]";
     }
     return i;
@@ -488,18 +530,24 @@ function pythonTokens(text, legacy = false, templates = true) {
   // Code from i, up to the `}` that closes a replacement field when inField, else to the end.
   // `close` is the quote of the f-string whose field this is, `raw` whether it is raw, and
   // `owner` its token.
-  function code(i, inField, close, raw, owner) {
+  function code(i, inField, close, raw, owner, run = i) {
     const field = i;
     const site = inField ? field : -1; // where the code a string stands in begins
     let depth = 0;
     let debug = false; // whether an `=` ends the field's expression
     let conversion = -1; // where a conversion's `!` ends it
+    let bang = -1; // where the first `!` stands, that of `!=` too
     // A field's expression is its text up to its conversion, its format spec or its end. With
-    // an `=` it is debug text, part of the string; a t-string keeps it in each interpolation.
-    const expression = (end) => {
-      if (conversion !== -1) end = conversion;
-      if (debug && !raw) debugFields.push([field, end]);
-      if (debug || /[tT]/.test(owner.prefix)) writtenFields.push([field, end]);
+    // an `=` it is debug text, part of the string; a 3.14 t-string keeps it in each
+    // interpolation. 3.12 ends it at its first `!`, `!=` too, and 3.14.6 does so where a
+    // format spec follows and no conversion; 3.12 has no t-strings.
+    const expression = (end, spec) => {
+      const to = conversion !== -1 ? conversion : end;
+      const to146 = spec && conversion === -1 && bang !== -1 ? bang : to;
+      const template = /[tT]/.test(owner.prefix);
+      if (debug && !raw && !template) debugFields.push([field, bang !== -1 ? bang : to]);
+      if (debug) owner.debugs.push({ from: field, to, run, to12: bang !== -1 ? bang : to, to146, template });
+      if (debug || template) writtenFields.push([field, to, run, to146]);
     };
     while (i < n) {
       const c = text[i];
@@ -526,8 +574,9 @@ function pythonTokens(text, legacy = false, templates = true) {
         continue;
       }
       if (c === "'" || c === '"') { i = string(i, i, inField, site); continue; }
-      if (inField && !depth && c === "}") { expression(i); return i + 1; }
-      if (inField && !depth && c === ":") { expression(i); return formatSpec(i + 1, close, raw, owner); }
+      if (inField && !depth && c === "}") { expression(i, false); return i + 1; }
+      if (inField && !depth && c === ":") { expression(i, true); return formatSpec(i + 1, close, raw, owner); }
+      if (inField && !depth && c === "!" && bang === -1) bang = i;
       if (inField && !depth && c === "!" && text[i + 1] !== "=" && conversion === -1) conversion = i;
       if (inField && !depth && !debug && c === "=" && !/[=!<>]/.test(text[i - 1]) && text[i + 1] !== "=" && debugEnds(i + 1)) debug = true;
       if (c === "(" || c === "[" || c === "{") depth += 1;
@@ -552,9 +601,16 @@ function pythonTokens(text, legacy = false, templates = true) {
   function formatSpec(i, close, raw, owner) {
     let afterField = false;
     let from = i;
+    // CPython 3.14.6 reads a spec field that starts right where the one before it closed as
+    // going on with that one's text: `run` is where the first of such a run began.
+    let closed = -1;
+    let run = -1;
+    const parts = []; // the spec's text pieces and fields, in order, which CPython joins
+    owner.specRuns.push(parts);
     const text_ = (end) => {
       if (end <= from) return;
       owner.specs.push([from, end]);
+      parts.push([from, end]);
       if (raw) owner.kept.push([from, end]);
     };
     while (i < n) {
@@ -565,7 +621,18 @@ function pythonTokens(text, legacy = false, templates = true) {
         ambiguous = true;
         if (!legacy) { i += 2; continue; }
       }
-      if (text[i] === "{") { text_(i); i = code(i + 1, true, close, raw, owner); from = i; afterField = true; continue; }
+      if (text[i] === "{") {
+        text_(i);
+        if (i !== closed) run = i + 1;
+        const debugs = owner.debugs.length;
+        parts.push({ field: i });
+        i = code(i + 1, true, close, raw, owner, run);
+        parts.at(-1).debug = owner.debugs.slice(debugs).find((d) => d.from === parts.at(-1).field + 1);
+        closed = i;
+        from = i;
+        afterField = true;
+        continue;
+      }
       if (text[i] === "}") { text_(i); return i + 1; }
       i += 1;
     }
@@ -607,7 +674,7 @@ function pythonTokens(text, legacy = false, templates = true) {
     const close = text.startsWith(q.repeat(3), at) ? q.repeat(3) : q;
     const formatted = /[fFtT]/.test(prefix);
     const raw = /[rR]/.test(prefix);
-    const token = { type: "string", start, end: n, prefix, body: [at + close.length, n], fields: [], specs: [], kept: [], field: inField, site };
+    const token = { type: "string", start, end: n, prefix, body: [at + close.length, n], fields: [], specs: [], kept: [], debugs: [], specRuns: [], field: inField, site };
     tokens.push(token);
     let j = at + close.length;
     while (j < n) {
@@ -631,17 +698,20 @@ function pythonTokens(text, legacy = false, templates = true) {
   // CPython 3.12 cuts each `#` of debug text to its line's end, in a string too, and decodes
   // the escapes of what is left. 3.13 and later keep it as written, less the comments their
   // own scan finds.
-  return Object.assign(tokens, { ambiguous, debug: cutAtHashes(text, debugFields), written: pythonWritten(text, writtenFields) });
+  return Object.assign(tokens, { ambiguous, debug: debugTexts(text, debugFields), written: pythonWritten(text, writtenFields) });
 }
 
 /** The text that some field's 3.12 debug text keeps, each field less every `#` in it to its
- *  line's end, the line end kept: in order and apart. A field nested in another keeps what
- *  follows its own start, though a `#` before it on its line cuts the field around it there.
- *  So a character is kept where no `#` stands between it and the later of its line's start
- *  and the start of the innermost field around it; fields nest, so one sweep finds each. */
+ *  line's end, the line end kept: for each region of fields nested in one another, its kept
+ *  pieces in order, read as one text, so that a backslash before a cut line end goes on
+ *  with the next line as 3.12 decodes it. A field nested in another keeps what follows its
+ *  own start, though a `#` before it on its line cuts the field around it there. So a
+ *  character is kept where no `#` stands between it and the later of its line's start and
+ *  the start of the innermost field around it; fields nest, so one sweep finds each. */
 function cutAtHashes(text, fields) {
   const sorted = [...fields].sort((a, b) => a[0] - b[0] || b[1] - a[1]);
-  const out = [];
+  const groups = [];
+  let out = [];
   const around = []; // the fields around the position, the innermost last
   let k = 0;
   let hash = -1; // the last `#` so far
@@ -651,6 +721,7 @@ function cutAtHashes(text, fields) {
     while (around.length && around.at(-1)[1] <= p) around.pop();
     if (!around.length) {
       if (start !== -1) { out.push([start, p]); start = -1; }
+      if (out.length) { groups.push(out); out = []; }
       if (k === sorted.length) break;
       p = Math.max(p, sorted[k][0]);
     }
@@ -662,14 +733,26 @@ function cutAtHashes(text, fields) {
     if (kept && start === -1) start = p;
     else if (!kept && start !== -1) { out.push([start, p]); start = -1; }
   }
-  return out;
+  return groups;
+}
+
+/** 3.12's debug text of each field, as pieces of the text read as one: each `=` field's own
+ *  string, so that a backslash before a cut line end goes on with the next line as 3.12
+ *  decodes it. Nested fields are read again within each field around them: past a budget,
+ *  what the fields keep is read in pieces, each on its own. */
+function debugTexts(text, fields) {
+  let budget = 16 * text.length + 4000000;
+  for (const [from, to] of fields) budget -= to - from;
+  if (budget < 0) return cutAtHashes(text, fields).flat().map((piece) => [piece]);
+  return fields.map((field) => cutAtHashes(text, [field])[0] ?? []).filter((pieces) => pieces.length);
 }
 
 /** CPython 3.13's and 3.14's scan of a field's expression text, from `from` to `to`, which
  *  follows quotes one character at a time: whether it finds a `#` outside them or, given
- *  `out`, the pieces it keeps, each such `#` cut to its line's end. 3.13 skips the character
- *  after a backslash; where 3.14.6 strips, it does not, so an escaped quote turns its state. */
-function quoteScan(text, from, to, escapes, out = null) {
+ *  `out`, the pieces it keeps, each such `#` cut to its line's end; given `marks`, a
+ *  difference array, each range it cuts counted there instead. 3.13 skips the character after
+ *  a backslash; where 3.14.6 strips, it does not, so an escaped quote turns its state. */
+function quoteScan(text, from, to, escapes, out = null, marks = null) {
   let quote = "";
   let start = from;
   for (let i = from; i < to; i += 1) {
@@ -677,9 +760,11 @@ function quoteScan(text, from, to, escapes, out = null) {
     if (c === "\\" && escapes) { i += 1; continue; }
     if (c === '"' || c === "'") { if (!quote) quote = c; else if (c === quote) quote = ""; continue; }
     if (c !== "#" || quote) continue;
-    if (!out) return true;
-    if (i > start) out.push([start, i]);
+    if (!out && !marks) return true;
+    if (out && i > start) out.push([start, i]);
+    const hash = i;
     while (i < to && text[i] !== "\n" && text[i] !== "\r") i += 1;
+    if (marks) { marks[hash] += 1; marks[i] -= 1; }
     start = i;
     i -= 1;
   }
@@ -687,21 +772,75 @@ function quoteScan(text, from, to, escapes, out = null) {
   return false;
 }
 
-/** The text CPython 3.13 and later keep of each field's expression, as each of their scans
- *  keeps it; in order, and merged. Nested fields are scanned again within each field around
- *  them: past a budget in proportion to the program, a field's text is kept whole, its
- *  comments too, which fails closed. */
-function pythonWritten(text, fields) {
-  let budget = 8 * text.length + 1000000;
+/** 3.13's and 3.14.6's pieces of a field's expression text, the latter from the start of its run. */
+function keptPieces(text, from, to, escapes) {
   const out = [];
-  for (const [from, to] of fields) {
-    budget -= 3 * (to - from);
-    if (budget < 0 || !quoteScan(text, from, to, true)) { out.push([from, to]); continue; }
-    quoteScan(text, from, to, true, out);
-    quoteScan(text, from, to, false, out);
-  }
-  return merged(out);
+  if (quoteScan(text, from, to, true)) quoteScan(text, from, to, escapes, out);
+  else out.push([from, to]);
+  return out;
 }
+
+/** The text CPython 3.13 and later keep of some field's expression, as either of their scans
+ *  keeps it: in order and apart. Each field is two readings, 3.13's of its text and 3.14.6's
+ *  from the start of its run; a character is kept where some reading around it does not cut
+ *  it, so each reading's span and each range it cuts are counted. Nested fields are scanned
+ *  again within each field around them, which CPython allows 150 levels deep: past a budget
+ *  for that, a field's text is kept whole, its comments too, which fails closed. */
+function pythonWritten(text, fields) {
+  if (!fields.length) return [];
+  let budget = PY_SCAN_BUDGET(text);
+  const n = text.length;
+  const cuts = new Int32Array(n + 1);
+  const cover = new Int32Array(n + 1);
+  // One reading of text[start, to), its cuts counted where its scan finds a `#` outside quotes.
+  const reading = (start, to, escapes) => {
+    if (to <= start) return;
+    cover[start] += 1;
+    cover[to] -= 1;
+    budget -= 2 * (to - start);
+    if (budget >= 0 && quoteScan(text, start, to, true)) quoteScan(text, start, to, escapes, null, cuts);
+  };
+  // 3.14.6's readings of a run of touching fields go on from the run's start, each a longer
+  // prefix: the prefixes before its first `#` outside quotes keep their text whole, and the
+  // rest cut as the longest does, so two readings stand for them all.
+  const runs = new Map();
+  for (const [from, to, run = from, to146 = to] of fields) {
+    reading(from, to, true);
+    if (run === from && !runs.has(run)) { reading(from, to146, false); continue; }
+    const r = runs.get(run) ?? { ends: [] };
+    r.ends.push(to146);
+    runs.set(run, r);
+  }
+  for (const [run, { ends }] of runs) {
+    let longest = run;
+    for (const e of ends) longest = Math.max(longest, e);
+    let hash = longest; // the first `#` the scan finds outside quotes
+    for (let quote = "", i = run; i < longest; i += 1) {
+      const c = text[i];
+      if (c === "\\") { i += 1; continue; }
+      if (c === '"' || c === "'") { if (!quote) quote = c; else if (c === quote) quote = ""; continue; }
+      if (c === "#" && !quote) { hash = i; break; }
+    }
+    budget -= longest - run;
+    let whole = run;
+    for (const e of ends) if (e <= hash) whole = Math.max(whole, e);
+    if (whole > run) { cover[run] += 1; cover[whole] -= 1; }
+    if (longest > hash) reading(run, longest, false);
+  }
+  const out = [];
+  let covered = 0; // how many readings span the character
+  let cutting = 0; // how many of them cut it
+  let begin = -1; // where the kept text now began
+  for (let p = 0; p <= n; p += 1) {
+    covered += cover[p];
+    cutting += cuts[p];
+    const kept = covered > 0 && cutting < covered && p < n;
+    if (kept && begin === -1) begin = p;
+    else if (!kept && begin !== -1) { out.push([begin, p]); begin = -1; }
+  }
+  return out;
+}
+const PY_SCAN_BUDGET = (text) => 460 * text.length + 10000000;
 
 /** The parts of Python's strings read as text with escapes, str or bytes: each body, less an
  *  f-string's fields, whose code is read as code, but with the text of their format specs and,
@@ -718,8 +857,37 @@ function pythonLiterals(tokens, bytes, raw = false) {
     }
     append(spans, t.specs);
   }
-  if (!bytes) append(spans, tokens.debug);
-  return spans.sort((a, b) => a[0] - b[0]);
+  if (!bytes) for (const pieces of tokens.debug) spans.push({ pieces });
+  return spans.sort((a, b) => spanStart(a) - spanStart(b));
+}
+
+const spanStart = (span) => (Array.isArray(span) ? span[0] : span.pieces[0][0]);
+
+/** Spans with each group of pieces spread out, in order. */
+function flat(spans) {
+  const out = [];
+  for (const span of spans) if (Array.isArray(span)) out.push(span); else append(out, span.pieces);
+  return out.sort((a, b) => a[0] - b[0]);
+}
+
+/** A literal's text, and where each of its characters was written: a span, or pieces of the
+ *  text read as one. */
+function bodyOf(text, span) {
+  if (Array.isArray(span)) {
+    const [start, end] = span;
+    return { body: text.slice(start, end), place: (k) => start + k, end };
+  }
+  const { pieces } = span;
+  const begins = [];
+  let body = "";
+  for (const [from, to] of pieces) { begins.push(body.length); body += text.slice(from, to); }
+  const place = (k) => {
+    let j = 0;
+    let hi = begins.length - 1;
+    while (j < hi) { const mid = (j + hi + 1) >> 1; if (begins[mid] <= k) j = mid; else hi = mid - 1; }
+    return pieces[j][0] + k - begins[j];
+  };
+  return { body, place, end: pieces.at(-1)[1] };
 }
 
 /** Adds items to an array one at a time: a spread call fails past about 125,000 of them. */
@@ -1705,6 +1873,12 @@ function pythonPartners(all) {
   return partner;
 }
 
+/** Whether the logical line on which token k stands ends with a `:`, as a match statement's does. */
+function endsWithColon(all, k) {
+  while (k + 1 < all.length && all[k + 1].type !== "newline") k += 1;
+  return all[k]?.type === "op" && all[k].text === ":";
+}
+
 // Keywords before which a `(` opens a group, not a call or a subscript.
 const PY_KEYWORDS = new Set(["and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif",
   "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or",
@@ -1723,8 +1897,8 @@ function pythonCall(all, first, last) {
     // A field's code starts after its `{`, which is no token: what stands before it is no
     // operand. Nor is `match` or `case` where it begins a statement, as a soft keyword.
     const before = all[j - 1];
-    const soft = before?.type === "name" && /^(?:match|case)$/.test(before.text.normalize("NFKC"))
-      && (j < 2 || all[j - 2].type === "newline" || (all[j - 2].type === "op" && /^[;:]$/.test(all[j - 2].text)));
+    const soft = before?.type === "name" && before.site === -1 && before.text.normalize("NFKC") === "match"
+      && (j < 2 || all[j - 2].type === "newline") && endsWithColon(all, j);
     const ends = !soft && before?.site === all[j].site && (before.type === "string" || (before.type === "name" && !PY_KEYWORDS.has(before.text.normalize("NFKC")))
       || (before.type === "op" && /^[)\]}\p{N}]$/u.test(before.text)));
     if (ends) break;
@@ -1805,8 +1979,8 @@ function placer(body, escapes, decode) {
 // holds a backslash is read again as it decodes, and the URL is placed where it begins.
 function literalUrls(text, spans, escapes, decode, lineAt, joined = new Set()) {
   const urls = [];
-  for (const [start, end] of spans) {
-    const body = text.slice(start, end);
+  for (const span of spans) {
+    const { body, place, end } = bodyOf(text, span);
     if (!body.includes("\\")) continue;
     const writtenAt = placer(body, escapes, decode);
     let anywhere = null;
@@ -1814,7 +1988,7 @@ function literalUrls(text, spans, escapes, decode, lineAt, joined = new Set()) {
     for (const m of value.matchAll(URL_IN_CODE)) {
       const found = hostAt(value, m);
       if (joined.has(end) && m.index + m[1].length + 3 + found.authority.length === value.length) continue;
-      const at = start + writtenAt(m.index);
+      const at = place(writtenAt(m.index));
       let { host } = found;
       const part = hostPart(found.authority);
       if (part.host.includes(UNREADABLE)) {
@@ -1840,8 +2014,8 @@ const namedAsWritten = (written) => (/\\N\{/.test(written)
  *  placed where it was written. */
 function literalEnv(text, spans, escapes, decode, language, lineAt, typescript = false) {
   const env = [];
-  for (const [start, end] of spans) {
-    const body = text.slice(start, end);
+  for (const span of spans) {
+    const { body, place } = bodyOf(text, span);
     if (!body.includes("\\")) continue;
     const value = decode(body);
     if (!value) continue;
@@ -1849,20 +2023,23 @@ function literalEnv(text, spans, escapes, decode, language, lineAt, typescript =
     // A decoded Python string is a string throughout.
     for (const e of envIn(value, language, () => 0, language === "python" ? [[0, value.length]] : null, null, typescript)) {
       where ??= escapeMap(body, escapes, decode);
-      const at = start + where(e.at);
+      const at = place(where(e.at));
       env.push({ ...e, line: lineAt(at), at });
     }
   }
   return env;
 }
 
-/** The URLs adjacent Python strings make together: Python joins them into one literal, so a
- *  URL in it counts as the joined literal decodes (SR-08). Each run of two or more is read as
- *  one value, each piece decoded as its own prefix says, and a field as `{}`, which ends a
- *  host as a computed part does. Two strings are adjacent where nothing but space, comments,
- *  line continuations and, inside brackets, line ends stands between them, in the same code:
- *  a string that ends a field is not joined to one after the field. */
-function adjacentUrls(text, tokens, lineAt, joined) {
+/** The URLs and environment reads that Python strings make together, as Python joins them
+ *  into one value (SR-08, SR-09). Adjacent strings are one literal; and an f-string's text
+ *  before an `=` field is one string with that field's debug text, as each CPython version
+ *  builds it. Each run of two or more strings, or of one with an `=` field, is read as one
+ *  value: each piece decoded as its own prefix says, a field's value as `{}`, which ends a
+ *  host as a computed part does, and before it any debug text, once as each version keeps it.
+ *  Two strings are adjacent where nothing but space, comments, line continuations and, inside
+ *  brackets, line ends stands between them, in the same code: a string that ends a field is
+ *  not joined to one after the field. */
+function adjacentReads(text, tokens, lineAt, joined) {
   const all = tokens.filter((t) => t.type !== "comment").sort((a, b) => a.start - b.start);
   // The token that follows one, past the fields inside it.
   const after = (t) => {
@@ -1872,74 +2049,220 @@ function adjacentUrls(text, tokens, lineAt, joined) {
     return all[lo];
   };
   const urls = [];
+  const env = [];
   const continued = new Set();
+  // Debug text nested in debug text is joined again within each field around it: past a
+  // budget, a field's debug text is left out of the value, and read on its own only.
+  let budget = 16 * text.length + 4000000;
+  // Reads one value as a version builds it from `segments`: text pieces, [from, to] with
+  // whether they are raw, and fields, {debug}, each a `{}` after any debug text.
+  const read = (version, bytes, segments) => {
+    // Each piece: its value, and where in the text each of its characters was written.
+    const pieces = [];
+    const add = (from, to, raw) => {
+      const body = text.slice(from, to);
+      const decode = raw ? (x) => x : bytes ? pythonBytes : pythonDecode;
+      const where = raw || !body.includes("\\") ? (i) => i : escapeMap(body, PY_ESCAPE, decode);
+      pieces.push({ value: decode(body), place: (i) => from + where(i) });
+    };
+    // A field's debug text: 3.12 cuts each `#` to its line's end and decodes the rest, in a
+    // raw f-string keeps it, and has no t-strings; 3.13 and 3.14.6 keep what their scans
+    // keep, as written.
+    const addDebug = (d, raw) => {
+      if (version === "3.12" && d.template) return;
+      budget -= d.to - d.run;
+      if (budget < 0) return;
+      const group = version === "3.12" ? (cutAtHashes(text, [[d.from, d.to12]])[0] ?? [])
+        : version === "3.13" ? keptPieces(text, d.from, d.to, true) : keptPieces(text, d.run, d.to146, false);
+      if (!group.length) return;
+      const { body, place } = bodyOf(text, { pieces: group });
+      const decoding = version === "3.12" && !raw;
+      const where = decoding && body.includes("\\") ? escapeMap(body, PY_ESCAPE, pythonDecode) : (i) => i;
+      pieces.push({ value: decoding ? pythonDecode(body) : body, place: (i) => place(where(i)) });
+    };
+    for (const x of segments) {
+      if (x.text) add(x.text[0], x.text[1], x.raw);
+      else {
+        if (x.debug && version) addDebug(x.debug, x.raw);
+        pieces.push({ value: "{}", place: () => x.at });
+      }
+    }
+    readJoined(text, pieces, lineAt, urls, env);
+  };
   for (const t of all) {
-    if (t.type !== "string" || continued.has(t)) continue;
+    if (t.type !== "string") continue;
+    const raw = /[rR]/.test(t.prefix);
+    // A format spec's text and its fields are one string too.
+    for (const parts of t.specRuns) {
+      if (!parts.some((x) => x.debug)) continue;
+      const segments = parts.map((x) => (Array.isArray(x) ? { text: x, raw } : { at: x.field, debug: x.debug, raw }));
+      for (const x of parts) if (x.debug) joined.add(x.field);
+      for (const version of ["3.12", "3.13", "3.14.6"]) read(version, false, segments);
+    }
+    if (continued.has(t)) continue;
     const bytes = /[bB]/.test(t.prefix);
     const run = [t];
     for (let u = after(t); u?.type === "string" && u.site === t.site && /[bB]/.test(u.prefix) === bytes; u = after(u)) {
       run.push(u);
       continued.add(u);
     }
-    if (run.length < 2) continue;
+    const debugged = run.some((u) => u.debugs.length);
+    if (run.length < 2 && !debugged) continue;
     for (const u of run.slice(0, -1)) joined.add(u.body[1]);
-    // Each piece: where its text was written, its value, and a map back into the text.
-    const pieces = [];
-    const add = (from, to, raw) => {
-      const body = text.slice(from, to);
-      const decode = raw ? (x) => x : bytes ? pythonBytes : pythonDecode;
-      pieces.push({ from, value: decode(body), where: raw || !body.includes("\\") ? (i) => i : escapeMap(body, PY_ESCAPE, decode) });
-    };
+    const segments = [];
     for (const u of run) {
       const raw = /[rR]/.test(u.prefix);
+      const debugAt = new Map(u.debugs.map((x) => [x.from, x]));
       let at = u.body[0];
       for (const [start, end] of u.fields) {
-        if (start > at) add(at, start, raw);
-        pieces.push({ from: start, value: "{}", where: () => 0 });
+        if (start > at) segments.push({ text: [at, start], raw });
+        const debug = debugAt.get(start + 1);
+        if (debug) joined.add(start);
+        segments.push({ at: start, debug, raw });
         at = Math.max(at, end);
       }
-      if (u.body[1] > at) add(at, u.body[1], raw);
+      if (u.body[1] > at) segments.push({ text: [at, u.body[1]], raw });
     }
-    const value = pieces.map((x) => x.value).join("");
-    const begins = [];
-    let length = 0;
-    for (const x of pieces) { begins.push(length); length += x.value.length; }
-    // The piece the value's character at an index comes from.
-    const pieceAt = (index) => {
-      let k = 0;
-      let hi = begins.length - 1;
-      while (k < hi) { const mid = (k + hi + 1) >> 1; if (begins[mid] <= index) k = mid; else hi = mid - 1; }
-      return k;
-    };
-    // Where in the text the value's characters from one index to another were written.
-    const writtenAt = (k, index) => pieces[k].from + pieces[k].where(index - begins[k]);
-    for (const m of value.matchAll(URL_IN_CODE)) {
-      const found = hostAt(value, m);
-      let { host } = found;
-      const part = hostPart(found.authority);
-      if (part.host.includes(UNREADABLE)) {
-        // As for one literal, a host this review cannot decode is named as written, each
-        // piece's part of it as that piece was written.
-        const from = m.index + m[1].length + 3 + part.start;
-        const to = from + part.host.length;
-        let written = "";
-        for (let j = pieceAt(from); j < pieces.length && begins[j] < to; j += 1) {
-          written += text.slice(writtenAt(j, Math.max(from, begins[j])), writtenAt(j, Math.min(to, begins[j] + pieces[j].value.length)));
-        }
-        host = namedAsWritten(written) ?? host;
-      }
-      if (!host) continue;
-      const k = pieceAt(m.index);
-      const at = writtenAt(k, m.index);
-      urls.push({ host, line: lineAt(at), at });
-    }
+    for (const version of debugged ? ["3.12", "3.13", "3.14.6"] : [null]) read(version, bytes, segments);
   }
-  return urls;
+  return { urls, env };
+}
+
+/** The URLs and environment reads in the value pieces make together, each placed where it was
+ *  written. */
+function readJoined(text, pieces, lineAt, urls, env) {
+  const value = pieces.map((x) => x.value).join("");
+  const begins = [];
+  let length = 0;
+  for (const x of pieces) { begins.push(length); length += x.value.length; }
+  // The piece the value's character at an index comes from, and where it was written.
+  const pieceAt = (index) => {
+    let k = 0;
+    let hi = begins.length - 1;
+    while (k < hi) { const mid = (k + hi + 1) >> 1; if (begins[mid] <= index) k = mid; else hi = mid - 1; }
+    return k;
+  };
+  const writtenAt = (k, index) => pieces[k].place(index - begins[k]);
+  for (const m of value.matchAll(URL_IN_CODE)) {
+    const found = hostAt(value, m);
+    let { host } = found;
+    const part = hostPart(found.authority);
+    if (part.host.includes(UNREADABLE)) {
+      // As for one literal, a host this review cannot decode is named as written, each
+      // piece's part of it as that piece was written.
+      const from = m.index + m[1].length + 3 + part.start;
+      const to = from + part.host.length;
+      let written = "";
+      for (let j = pieceAt(from); j < pieces.length && begins[j] < to; j += 1) {
+        written += text.slice(writtenAt(j, Math.max(from, begins[j])), writtenAt(j, Math.min(to, begins[j] + pieces[j].value.length)));
+      }
+      host = namedAsWritten(written) ?? host;
+    }
+    if (!host) continue;
+    const at = writtenAt(pieceAt(m.index), m.index);
+    urls.push({ host, line: lineAt(at), at });
+  }
+  // The value is a string throughout.
+  for (const e of envIn(value, "python", () => 0, [[0, value.length]])) {
+    const at = writtenAt(pieceAt(e.at), e.at);
+    env.push({ ...e, line: lineAt(at), at });
+  }
 }
 
 /** Adds found items to a map, once each by key, keeping the first. */
 const gather = (into, items, key) => { for (const x of items) if (!into.has(key(x))) into.set(key(x), x); };
 const urlKey = (u) => `${u.line}\0${u.host}`;
+
+/** How Node runs TypeScript: with its types replaced by space, so that every offset stays
+ *  where it was ({ code }); where that cannot be done, as for an `enum`, transformed, with a
+ *  map from each offset of the code to where in the text it came from ({ code, place }); or
+ *  null where Node cannot read it at all. Any other failure of Node's stripper may leave it
+ *  failing for every file after, so the review stops, and the package is refused unreadable. */
+function typeScriptRun(text) {
+  const readable = (e) => e?.code === "ERR_INVALID_TYPESCRIPT_SYNTAX" || e?.code === "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX";
+  try {
+    const code = stripTypeScriptTypes(text, { mode: "strip" });
+    return code.length === text.length ? { code } : null;
+  } catch (e) {
+    if (!readable(e)) throw e;
+    if (e.code === "ERR_INVALID_TYPESCRIPT_SYNTAX") return null;
+  }
+  let out;
+  try {
+    out = stripTypeScriptTypes(text, { mode: "transform", sourceMap: true });
+  } catch (e) {
+    if (!readable(e)) throw e;
+    return null;
+  }
+  const m = /\n\/\/# sourceMappingURL=data:application\/json;base64,([A-Za-z0-9+/=]+)\s*$/.exec(out);
+  if (!m) return null;
+  const code = out.slice(0, m.index);
+  const lines = sourceMap(JSON.parse(Buffer.from(m[1], "base64").toString("utf8")).mappings);
+  const starts = lineStarts(code);
+  const textStarts = lineStarts(text);
+  // The offset in the text that the code at an offset came from, by the map's segment at or
+  // before it on its line, or the last on a line before.
+  const place = (offset) => {
+    let line = 0;
+    let hi = starts.length - 1;
+    while (line < hi) { const mid = (line + hi + 1) >> 1; if (starts[mid] <= offset) line = mid; else hi = mid - 1; }
+    const column = offset - starts[line];
+    for (let l = line; l >= 0; l -= 1) {
+      const segments = lines[l] ?? [];
+      let k = segments.length - 1;
+      while (k >= 0 && l === line && segments[k][0] > column) k -= 1;
+      if (k < 0) continue;
+      const [generated, sourceLine, sourceColumn] = segments[k];
+      const from = textStarts[Math.min(sourceLine, textStarts.length - 1)];
+      const to = sourceLine + 1 < textStarts.length ? textStarts[sourceLine + 1] - 1 : text.length;
+      return Math.min(from + sourceColumn + (l === line ? column - generated : 0), Math.max(from, to));
+    }
+    return 0;
+  };
+  return { code, place };
+}
+
+/** Where each line of a text begins. */
+function lineStarts(text) {
+  const starts = [0];
+  for (let i = 0; i < text.length; i += 1) if (text[i] === "\n") starts.push(i + 1);
+  return starts;
+}
+
+const VLQ = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** A source map's mappings: for each line of the code, its segments, [column, source line,
+ *  source column], in order. */
+function sourceMap(mappings) {
+  const lines = [];
+  let sourceLine = 0;
+  let sourceColumn = 0;
+  for (const line of mappings.split(";")) {
+    const segments = [];
+    let column = 0;
+    for (const segment of line ? line.split(",") : []) {
+      const values = [];
+      let value = 0;
+      let shift = 0;
+      for (const ch of segment) {
+        const digit = VLQ.indexOf(ch);
+        value += (digit & 31) << shift;
+        if (digit & 32) { shift += 5; continue; }
+        values.push(value & 1 ? -(value >>> 1) : value >>> 1);
+        value = 0;
+        shift = 0;
+      }
+      column += values[0] ?? 0;
+      if (values.length >= 4) {
+        sourceLine += values[2];
+        sourceColumn += values[3];
+        segments.push([column, sourceLine, sourceColumn]);
+      }
+    }
+    lines.push(segments);
+  }
+  return lines;
+}
 
 /** What a program reaches: { urls: [{host, line}], env: [{name, line}], spawns: [{what, line}],
  *  imports, coding }, each in the order it appears. A JavaScript import is {specifier, value,
@@ -1978,8 +2301,8 @@ export function findReach(source, language, path = "") {
       // too. Debug text is read with its field's own comments blanked: CPython leaves them out
       // of it. A literal the next one continues names the host they make together.
       const joined = new Set();
-      const adjacent = adjacentUrls(text, tokens, lineAt, joined);
-      const literals = [...strings, ...bytes].sort((a, b) => a[0] - b[0]);
+      const adjacent = adjacentReads(text, tokens, lineAt, joined);
+      const literals = flat([...strings, ...bytes]);
       // Debug text, and a t-string's interpolations, as 3.13 and later keep them as written.
       const written = tokens.written.length ? only(text, tokens.written) : null;
       gather(urls, [
@@ -1987,10 +2310,11 @@ export function findReach(source, language, path = "") {
         ...(written ? urlsIn(written, lineAt) : []),
         ...literalUrls(code, strings, PY_ESCAPE, pythonDecode, lineAt, joined),
         ...literalUrls(code, bytes, PY_ESCAPE, pythonBytes, lineAt, joined),
-        ...adjacent,
+        ...adjacent.urls,
       ], urlKey);
       gather(env, [
-        ...envIn(code, language, lineAt, [...pythonLiterals(tokens, false, true), ...pythonLiterals(tokens, true, true)]),
+        ...envIn(code, language, lineAt, flat([...pythonLiterals(tokens, false, true), ...pythonLiterals(tokens, true, true)])),
+        ...adjacent.env,
         ...(written ? envIn(written, language, lineAt, tokens.written) : []),
         ...literalEnv(code, strings, PY_ESCAPE, pythonDecode, language, lineAt),
         ...literalEnv(code, bytes, PY_ESCAPE, pythonBytes, language, lineAt),
@@ -2008,9 +2332,35 @@ export function findReach(source, language, path = "") {
     const goal = /\.c[jt]s$/i.test(path) ? "script" : /\.m[jt]s$/i.test(path) ? "module" : "either";
     const typescript = /\.[cm]?ts$/i.test(path);
     // Every reading is read on its own and what any of them finds counts (SR-08), so no
-    // reading's misreading hides code and no mix of two readings makes up code.
+    // reading's misreading hides code and no mix of two readings makes up code. TypeScript is
+    // also read as Node runs it, its types stripped to space or, where Node cannot strip them,
+    // transformed, and each finding placed back where it was written.
     const found = new Map();
-    for (const r of javaScriptReadings(text, goal)) {
+    const run = typescript ? typeScriptRun(text) : null;
+    // Transformed code's findings, placed back in the text; a read or an import counts once
+    // on its line, beside what the text's own readings find there.
+    const moved = { env: new Map(), imports: new Map() };
+    if (run?.place) {
+      const { code: js, place } = run;
+      const back = (x) => ({ ...x, at: place(x.at), line: lineAt(place(x.at)) });
+      const lineOf = (o) => lineAt(place(o));
+      for (const r of javaScriptReadings(js, goal)) {
+        const decoded = r.whole ? [] : r.literals.filter(([s, e]) => jsValue(js.slice(s, e)) !== null);
+        gather(urls, [...urlsIn(r.code, lineOf, decoded, merged(r.tagged)), ...literalUrls(js, r.literals, JS_ESCAPE, r.whole ? jsLenient : jsValue, lineOf)].map(back), urlKey);
+        gather(moved.env, [...envIn(r.code, language, lineOf, r.whole ? null : r.literals, r.whole ? null : r.regexes, typescript),
+          ...literalEnv(js, r.literals, JS_ESCAPE, r.whole ? jsLenient : jsValue, language, lineOf, typescript)].map(back), (e) => `${e.line}\0${e.name}`);
+        gather(moved.imports, jsImports(r.code, r.hollowed, lineOf).map(back), (i) => `${i.line}\0${i.specifier}\0${i.esm}`);
+      }
+    }
+    // Where Node strips the types, its text is the code that runs, so it is what is read; the
+    // text itself is read once more, as it reads by default, only for the imports a type-only
+    // `import` names, which stripping removes.
+    const stripped = run && !run.place ? run.code : null;
+    if (stripped !== null && stripped !== text) {
+      const own = readJavaScript(text, [], goal);
+      gather(found, jsImports(own.code, own.hollowed, lineAt), (i) => `${i.at}\0${i.specifier}\0${i.esm}`);
+    }
+    for (const r of javaScriptReadings(stripped ?? text, goal)) {
       // A real literal with a malformed escape has no value, so it holds no URL as it decodes;
       // only in the reading with nothing blanked, where the whole text is one literal, is it
       // decoded leniently. A match cut by an escape names its host where the literal does not
@@ -2025,6 +2375,11 @@ export function findReach(source, language, path = "") {
       // imports: Node resolves the two differently.
       gather(found, jsImports(r.code, r.hollowed, lineAt), (i) => `${i.at}\0${i.specifier}\0${i.esm}`);
     }
+    const has = (map, key) => new Set([...map.values()].map(key));
+    const envLines = has(env, (e) => `${e.line}\0${e.name}`);
+    for (const [k, e] of moved.env) if (!envLines.has(k)) env.set(`${e.at}\0${e.name}`, e);
+    const importLines = has(found, (i) => `${i.line}\0${i.specifier}\0${i.esm}`);
+    for (const [k, i] of moved.imports) if (!importLines.has(k)) found.set(`${i.at}\0${i.specifier}\0${i.esm}`, i);
     imports = [...found.values()];
     spawns = spawnsIn(language, imports, null, lineAt);
   }

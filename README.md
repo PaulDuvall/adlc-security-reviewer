@@ -28,7 +28,10 @@ and 14 older bugs, all fixed. Round 20 confirmed 29 of the review of round 19's 
 comparisons with CPython, V8 and Node, which found older bugs the earlier ones never reached,
 all fixed. A review of round 20's own fixes found 22 regressions and 7 older bugs, all fixed.
 Round 21's second review of the last of them found 8 regressions and 4 older bugs, most in how
-Python's `=` debug text is read, all fixed; that reading now matches CPython's own source. Open: 29 decisions the spec leaves open, the 104 tests round 17 found missing, and URL
+Python's `=` debug text is read, all fixed; that reading now matches CPython's own source.
+Round 22's reviews of round 21 and of its own first fixes found 9 regressions and 11 older bugs,
+and checks against V8 and Node found more in sloppy `let` and TypeScript, all fixed. TypeScript is
+now read as Node runs it, its types stripped or transformed. Open: 29 decisions the spec leaves open, the 104 tests round 17 found missing, and URL
 forms the spec leaves unrefused though Node reaches their host.
 
 | | Check | Result |
@@ -284,7 +287,7 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 2,880 lines<br/>Node built-ins only<br/>21 rounds"]
+  cod["<b>Code</b> ✅<br/>6 programs, 3,235 lines<br/>Node built-ins only<br/>22 rounds"]
   nxt["<b>Next</b><br/>104 missing tests added<br/>29 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
@@ -293,7 +296,7 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in twenty-one rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+The Code stage ran in twenty-two rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
 other rounds attacked the code and fixed what broke, except rounds 10, 14 and 15, which changed
 the checks and files around it, and round 16, which measured the tests.
 [docs/rounds.md](docs/rounds.md) has the full record.
@@ -321,6 +324,7 @@ the checks and files around it, and round 16, which measured the tests.
 | 19 | Attack round 18's fixes the same way, then compare the reviewer with Node's URL parser on 160,000 generated URLs | 27 confirmed, all fixed. 14 were regressions round 18 made, such as an escaped URL in a Python format spec that was hidden again, and a time that grew with the square of the URLs. 13 were older, such as a Python name in triple quotes. The URL comparison found one more: `fetch("https://«.evil.example/")` passed, though Node sends it to a host under evil.example; fixed. Some URL forms pass because the spec says so, such as `https:///evil.example/`; they are listed for the spec owner |
 | 20 | Check the review of round 19's 32 findings, attack the rules for loading code again, rebuild the comparisons with CPython, V8 and Node, then attack round 20's own fixes | 29 of the 32 confirmed and 9 more in the rules, all fixed; 16 were regressions round 19 made, such as an escaped URL in a raw Python format spec hidden again. The rebuilt comparisons found older bugs: V8 found code hidden after `break`, `debugger` or `var v` and a line end in 134 of 20,000 programs, and CPython imports hidden behind `(importlib.import_module)(…)`. The review of round 20's fixes found 22 regressions, such as `from` or `let` used as a name hiding a URL, and a 50-byte Python file that never finished, and 7 older bugs; all fixed. Now V8 finds no hidden code in 90,000 programs, and CPython no missed import in 60,000 |
 | 21 | Attack round 20's last fixes, then check the reading of Python's `=` debug text against CPython's own source | 12 confirmed, all fixed. 8 were regressions round 20 made, such as nested debug fields that ran the review out of memory, and an `import_module` call after `match` that was missed. 4 were older, such as a URL in debug text that CPython 3.13 keeps but the review blanked. The reading of debug text now matches CPython 3.12, 3.13 and 3.14 on all 5,308 generated fields, and CPython's f-string comparison misses 1 URL in 54,415 programs, from 87 |
+| 22 | Attack round 21's fixes and its own first fixes, and check the JavaScript reader against V8 and Node's TypeScript stripper statement by statement | 20 confirmed by two reviews, all fixed: 9 regressions, such as `match(f)("tests")` refused as an import, and 11 older bugs, such as an object's `var` key that hid code after it. The statement checks found more: sloppy `let` hid code after it, a regression of round 20, and TypeScript's types hid code in 37 of 119 statements. TypeScript is now read as Node runs it, so none of the 119 hides code, with or without an `enum` that forces Node to transform the file. CPython's f-string comparison now misses 0 URLs and 0 imports in 54,415 programs |
 
 ## How the tests stay honest
 
