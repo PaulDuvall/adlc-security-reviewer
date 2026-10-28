@@ -24,7 +24,8 @@ the bugs planted in round 13's code. Round 17 sorted the 293 they miss: 34 showe
 bugs, all fixed, and 70 more are tests the suite lacks. Round 18's review of those fixes found
 13 regressions and 14 older bugs, all fixed. Round 19's review of round 18 found 14 regressions
 and 14 older bugs, all fixed. Open: 28 decisions the spec leaves open, the 104 tests round 17
-found missing, and URL forms the spec leaves unrefused though Node reaches their host.
+found missing, and URL forms the spec leaves unrefused though Node reaches their host. Round 20, a
+review of round 19, is under way: [its 32 findings so far](docs/rounds.md#handoff) are being checked.
 
 | | Check | Result |
 |---|---|---|
