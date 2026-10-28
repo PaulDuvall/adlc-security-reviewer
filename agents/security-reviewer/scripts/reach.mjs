@@ -206,8 +206,9 @@ function readJavaScript(text, prefix, goal) {
         expectValue = !afterDot && JS_KEYWORDS_BEFORE_EXPRESSION.has(word[0]);
         // In a module `await` and `yield` are always keywords; `of` is one only in a for-of.
         unsure = expectValue && JS_CONTEXTUAL_KEYWORDS.has(word[0]) && (goal !== "module" || word[0] === "of");
-        // In `for await (…)` the `(` opens the for's condition, as after `for`.
-        lastWord = !afterDot && word[0] === "await" && lastWord === "for" ? "for" : word[0];
+        // In `for await (…)` the `(` opens the for's condition, as after `for`, but not after
+        // a property named `for`.
+        lastWord = !afterDot && word[0] === "await" && lastWord === "for" && !lastWasName ? "for" : word[0];
         lastWasName = afterDot;
         lastToken = !afterDot && (word[0] === "else" || word[0] === "do") ? word[0] : "value";
         afterDot = false;
@@ -297,15 +298,16 @@ const PY_STRING_PREFIX = /^(?:[uU]|[rR]|[bBfFtT]|[rR][bBfFtT]|[bBfFtT][rR])$/;
 /** Python's tokens, in order: names and operators as {type, start, end, text}, strings as
  *  {type: "string", start, end, prefix, body: [start, end]}, comments, and the end of each
  *  logical line. Tokens inside an f-string's replacement field carry `field: true`. */
-function pythonTokens(text) {
+function pythonTokens(text, legacy = false) {
   const tokens = [];
+  let ambiguous = false; // whether a format spec has a `{{` that 3.12 reads otherwise
   const n = text.length;
   const lineEnd = (i) => { PY_LINE_END.lastIndex = i; const m = PY_LINE_END.exec(text); return m ? m.index : n; };
   const breakLength = (i) => (text.startsWith("\r\n", i) ? 2 : 1);
 
   // Code from i, up to the `}` that closes a replacement field when inField, else to the end.
-  // `close` is the quote of the f-string whose field this is.
-  function code(i, inField, close) {
+  // `close` is the quote of the f-string whose field this is, and `raw` whether it is raw.
+  function code(i, inField, close, raw) {
     let depth = 0;
     while (i < n) {
       const c = text[i];
@@ -328,7 +330,7 @@ function pythonTokens(text) {
       }
       if (c === "'" || c === '"') { i = string(i, i, inField); continue; }
       if (inField && !depth && c === "}") return i + 1;
-      if (inField && !depth && c === ":") return formatSpec(i + 1, close);
+      if (inField && !depth && c === ":") return formatSpec(i + 1, close, raw);
       if (c === "(" || c === "[" || c === "{") depth += 1;
       else if ((c === ")" || c === "]" || c === "}") && depth) depth -= 1;
       tokens.push({ type: "op", start: i, end: i + 1, text: c, field: inField });
@@ -338,20 +340,33 @@ function pythonTokens(text) {
   }
 
   // A format spec is text with fields of its own, up to the `}` that closes its field. As
-  // CPython's tokenizer reads it, a `{` there opens a field, `{{` too, until one of its fields
-  // has closed; after that `{{` is a literal brace (3.13 and later, which 3.12 rejects). The
-  // f-string's own quote ends the f-string even before that `}`, and so does a line end in a
-  // one-quote f-string, as 3.14 reads it.
-  function formatSpec(i, close) {
+  // CPython's tokenizer reads it, a backslash takes the character after it, a line end whole,
+  // and a non-raw `\N{…}` is one escape, its braces included; a `{` opens a field, `{{` too,
+  // until one of the spec's fields has closed, after which 3.13 and later read `{{` as a
+  // literal brace and 3.12 as a field (the `legacy` reading); and the f-string's own quote
+  // ends the f-string even before that `}`. A line end does not end it: 3.12 reads on.
+  function formatSpec(i, close, raw) {
     let afterField = false;
     while (i < n) {
-      if (text.startsWith(close, i) || (close.length === 1 && (text[i] === "\n" || text[i] === "\r"))) return i;
-      if (afterField && text.startsWith("{{", i)) { i += 2; continue; }
-      if (text[i] === "{") { i = code(i + 1, true, close); afterField = true; continue; }
+      if (text[i] === "\\") { i = escapeEnd(i, true, raw); continue; }
+      if (text.startsWith(close, i)) return i;
+      if (afterField && text.startsWith("{{", i)) {
+        ambiguous = true;
+        if (!legacy) { i += 2; continue; }
+      }
+      if (text[i] === "{") { i = code(i + 1, true, close, raw); afterField = true; continue; }
       if (text[i] === "}") return i + 1;
       i += 1;
     }
     return n;
+  }
+
+  // Where the escape at i ends, in an f-string when formatted. A backslash does not escape a
+  // brace there, so `{` still opens a field; a non-raw `\N{…}` is one escape.
+  function escapeEnd(i, formatted, raw) {
+    if (formatted && !raw) { PY_NAMED.lastIndex = i; if (PY_NAMED.test(text)) return PY_NAMED.lastIndex; }
+    if (formatted && (text[i + 1] === "{" || text[i + 1] === "}")) return i + 1;
+    return i + 1 + (text.startsWith("\r\n", i + 1) ? 2 : 1);
   }
 
   function string(start, at, inField) {
@@ -359,22 +374,20 @@ function pythonTokens(text) {
     const q = text[at];
     const close = text.startsWith(q.repeat(3), at) ? q.repeat(3) : q;
     const formatted = /[fFtT]/.test(prefix);
-    const token = { type: "string", start, end: n, prefix, body: [at + close.length, n], field: inField };
+    const raw = /[rR]/.test(prefix);
+    const token = { type: "string", start, end: n, prefix, body: [at + close.length, n], fields: [], field: inField };
     tokens.push(token);
     let j = at + close.length;
     while (j < n) {
       const c = text[j];
-      if (c === "\\") {
-        // In an f-string a backslash does not escape a brace: `{` still opens a field.
-        if (formatted && (text[j + 1] === "{" || text[j + 1] === "}")) { j += 1; continue; }
-        j += 1 + (text.startsWith("\r\n", j + 1) ? 2 : 1);
-        continue;
-      }
+      if (c === "\\") { j = escapeEnd(j, formatted, raw); continue; }
       if (text.startsWith(close, j)) { token.body[1] = j; token.end = j + close.length; return token.end; }
       if (close.length === 1 && (c === "\n" || c === "\r")) { token.body[1] = j; token.end = j; return j; }
       if (formatted && c === "{") {
         if (text[j + 1] === "{") { j += 2; continue; }
-        j = code(j + 1, true, close);
+        const field = j;
+        j = code(j + 1, true, close, raw);
+        token.fields.push([field, j]);
         continue;
       }
       j += 1;
@@ -383,7 +396,20 @@ function pythonTokens(text) {
   }
 
   code(0, false);
-  return tokens;
+  return Object.assign(tokens, { ambiguous });
+}
+
+/** The parts of Python's strings read as text, str or bytes: each body, less an f-string's
+ *  fields, whose code is read as code. Raw strings hold no escapes and are left out. */
+function pythonLiterals(tokens, bytes) {
+  const spans = [];
+  for (const t of tokens) {
+    if (t.type !== "string" || /[rR]/.test(t.prefix) || /[bB]/.test(t.prefix) !== bytes) continue;
+    let at = t.body[0];
+    for (const [start, end] of t.fields) { if (start > at) spans.push([at, start]); at = Math.max(at, end); }
+    if (t.body[1] > at) spans.push([at, t.body[1]]);
+  }
+  return spans;
 }
 
 /** Python with its `#` comments blanked, those inside f-string fields too. */
@@ -428,10 +454,23 @@ function hostOf(scheme, authority) {
   return host.replace(/\.+$/, "") || null;
 }
 
+// SR-08 gives the parser the text after `//` up to the first character that cannot be part of
+// an authority. URL_IN_CODE's narrower authority, of the characters a host is usually written
+// with, is tried when that text gives no host, so no host it finds is lost.
+const URL_AUTHORITY = /[^\s\p{Cc}/?#\\"'`$\{\}<>|^(),;\p{Ps}\p{Pe}\p{Pi}\p{Pf}]*/uy;
+
+/** The host of a URL_IN_CODE match in text, and the authority it was read from. */
+function hostAt(text, m) {
+  URL_AUTHORITY.lastIndex = m.index + m[1].length + 3;
+  const wide = URL_AUTHORITY.exec(text)[0];
+  const host = wide !== m[2] ? hostOf(m[1], wide) : null;
+  return host ? { host, authority: wide } : { host: hostOf(m[1], m[2]), authority: wide };
+}
+
 function urlsIn(code, lineAt) {
   const urls = [];
   for (const m of code.matchAll(URL_IN_CODE)) {
-    const host = hostOf(m[1], m[2]);
+    const { host } = hostAt(code, m);
     if (host) urls.push({ host, line: lineAt(m.index), at: m.index });
   }
   return urls;
@@ -440,13 +479,16 @@ function urlsIn(code, lineAt) {
 // Space may sit around each `.`, as in `process\n  .env.X`; a blanked comment leaves space too.
 // A name is read as it decodes, so an escape in an identifier or a string does not hide it.
 const JS_NAME = String.raw`(?:[\p{ID_Start}_$]|${JS_ESCAPED_CHAR})(?:[\p{ID_Continue}$]|${JS_ESCAPED_CHAR})*`;
-const JS_KEY = String.raw`"((?:[^"\\\n]|\\[\s\S])+)"|'((?:[^'\\\n]|\\[\s\S])+)'|${"`"}((?:[^${"`"}\\$]|\\[\s\S])+)${"`"}`;
+const JS_KEY = String.raw`"((?:[^"\\\n]|\\(?:\r\n|[\s\S]))+)"|'((?:[^'\\\n]|\\(?:\r\n|[\s\S]))+)'|${"`"}((?:[^${"`"}\\$]|\\(?:\r\n|[\s\S])|\$(?!\{))+)${"`"}`;
 // `process.env`, or `process["env"]` in any quotes, with `?.` for any `.` and either part in
 // parentheses or not (SR-09). Each part
 // is matched as any name or key and kept only where it decodes to `process` and `env`, so an
 // escape such as `\u0070rocess` or `["e\x6ev"]` does not hide a read. Only one `\s*` may claim a run of space, so a long run costs
-// linear time, not quadratic.
-const JS_ENV = String.raw`(?:\b|(?<![\w\\])(?=\\u))(${JS_NAME})(?:\s*\))*\s*(?:(?:\?\.|\.)\s*(${JS_NAME})|(?:\?\.\s*)?\[\s*(?:${JS_KEY})\s*\])(?:\s*\))*`;
+// linear time, not quadratic. A name that decodes to `process` is seven characters, each
+// written as itself or as an escape, with no identifier character after them, so each place a
+// name may begin costs a few characters, however long the identifier there is.
+const JS_PROCESS = String.raw`(?:[\p{ID_Start}_$]|${JS_ESCAPED_CHAR})(?:[\p{ID_Continue}$]|${JS_ESCAPED_CHAR}){6}(?![\p{ID_Continue}$]|\\u)`;
+const JS_ENV = String.raw`(?:\b|(?<![\w\\])(?=\\u))(${JS_PROCESS})(?:\s*\))*\s*(?:(?:\?\.|\.)\s*(${JS_NAME})|(?:\?\.\s*)?\[\s*(?:${JS_KEY})\s*\])(?:\s*\))*`;
 const JS_ENV_READS = [
   new RegExp(String.raw`${JS_ENV}\s*(?:\?\.|\.)\s*(${JS_NAME})`, "gu"),
   new RegExp(String.raw`${JS_ENV}\s*(?:\?\.\s*)?\[\s*(?:${JS_KEY})\s*\]`, "gu"),
@@ -469,14 +511,16 @@ function envMatches(code, pattern, k) {
 }
 
 // Python's string forms, as a read names them: an optional prefix, then one quoted string.
-const PY_KEY = String.raw`([rRuU]?)(?:"((?:[^"\\\n]|\\[\s\S])+)"|'((?:[^'\\\n]|\\[\s\S])+)')`;
+const PY_KEY = String.raw`((?:[rR][fF]?|[fF][rR]?|[uU])?)(?:"((?:[^"\\\n]|\\(?:\r\n|[\s\S]))+)"|'((?:[^'\\\n]|\\(?:\r\n|[\s\S]))+)')`;
+// Space, or a backslash that continues the line, may sit around each `.`, `[` and `(`.
+const PY_SP = String.raw`(?:\s|\\(?=[\r\n]))*`;
 const PY_ENV_READS = [
-  new RegExp(String.raw`\bos\.environ\s*\[\s*${PY_KEY}\s*\]`, "g"),
-  new RegExp(String.raw`\bos\.environ\.get\(\s*${PY_KEY}`, "g"),
-  new RegExp(String.raw`\bos\.getenv\(\s*${PY_KEY}`, "g"),
+  new RegExp(String.raw`\bos${PY_SP}\.${PY_SP}environ${PY_SP}\[${PY_SP}${PY_KEY}${PY_SP}\]`, "g"),
+  new RegExp(String.raw`\bos${PY_SP}\.${PY_SP}environ${PY_SP}\.${PY_SP}get${PY_SP}\(${PY_SP}${PY_KEY}`, "g"),
+  new RegExp(String.raw`\bos${PY_SP}\.${PY_SP}getenv${PY_SP}\(${PY_SP}${PY_KEY}`, "g"),
 ];
 
-const DESTRUCTURED_KEY = new RegExp(String.raw`^\s*(?:"(?<dq>(?:[^"\\]|\\[\s\S])+)"|'(?<sq>(?:[^'\\]|\\[\s\S])+)'|(?<plain>${JS_NAME}))`, "du");
+const DESTRUCTURED_KEY = new RegExp(String.raw`^\s*(?:"(?<dq>(?:[^"\\]|\\(?:\r\n|[\s\S]))+)"|'(?<sq>(?:[^'\\]|\\(?:\r\n|[\s\S]))+)'|(?<plain>${JS_NAME}))`, "du");
 
 /** The names a destructuring pattern takes from the environment. A rest element takes no
  *  one name and is not counted. */
@@ -507,11 +551,17 @@ function envIn(code, language, lineAt) {
     for (const m of python ? code.matchAll(pattern) : envMatches(code, pattern, 1)) {
       const raw = python ? m[2] ?? m[3] : m[6] ?? m[7] ?? m[8];
       const rawString = python && /[rR]/.test(m[1]);
-      const name = rawString ? raw : python ? pythonDecode(raw) : jsValue(raw);
+      let body = raw;
+      if (python && /[fF]/.test(m[1])) {
+        // An f-string name with a field is computed (SR-18); with none it is its text.
+        if (pythonHasField(body, rawString)) continue;
+        body = body.replace(/\{\{/g, "{").replace(/\}\}/g, "}");
+      }
+      const name = rawString ? body : python ? pythonDecode(body) : jsValue(body);
       // A name this review cannot decode is named as written (SR-09): one with a malformed
-      // JavaScript escape, or a Python \N{…} naming anything but printable ASCII. A name that
-      // holds U+FFFD itself decodes like any other.
-      const undecodable = python ? !rawString && pythonUnnamed(raw) : name === null;
+      // JavaScript escape, or a Python \N{…} naming anything but printable ASCII or a \U above
+      // U+10FFFF. A name that holds U+FFFD itself decodes like any other.
+      const undecodable = python ? !rawString && pythonUndecodable(body) : name === null;
       if (!undecodable && !name) continue;
       env.push(undecodable
         ? { name: raw, undecodable: true, line: lineAt(m.index), at: m.index }
@@ -566,19 +616,29 @@ const JS_SINGLE_ESCAPES = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v"
 
 /** A JavaScript string literal's value, its escapes decoded. Null when one is malformed: a
  *  code point above U+10FFFF, or a `\u` or `\x` without its digits, such as `\u{}`, which V8
- *  rejects, so the literal has no value. */
-function jsValue(body) {
+ *  rejects, so the literal has no value. `lenient` keeps a malformed escape as written
+ *  instead, for finding URLs: one bad escape, perhaps in a comment or a String.raw that a
+ *  program read with nothing blanked holds, must not hide every URL in the text. */
+function jsValue(body, lenient = false) {
   try {
-    return body.replace(JS_ESCAPE, (_, point, unit, hex, _continued, octal, other) => {
-      if (point) return String.fromCodePoint(parseInt(point, 16));
+    return body.replace(JS_ESCAPE, (escape, point, unit, hex, _continued, octal, other) => {
+      if (point) {
+        if (lenient && parseInt(point, 16) > 0x10ffff) return escape;
+        return String.fromCodePoint(parseInt(point, 16));
+      }
       if (unit || hex) return String.fromCharCode(parseInt(unit ?? hex, 16));
       if (octal) return String.fromCharCode(parseInt(octal, 8));
-      if (other === "u" || other === "x") throw new SyntaxError(`a malformed \\${other} escape`);
+      if (other === "u" || other === "x") {
+        if (lenient) return escape;
+        throw new SyntaxError(`a malformed \\${other} escape`);
+      }
       if (other) return JS_SINGLE_ESCAPES[other] ?? other;
       return ""; // a line continuation
     });
   } catch { return null; }
 }
+
+const jsLenient = (body) => jsValue(body, true);
 
 function jsImports(code, hollowed, lineAt) {
   const imports = [];
@@ -608,21 +668,40 @@ const PY_ASCII_NAMES = new Map("SPACE|EXCLAMATION MARK|QUOTATION MARK|NUMBER SIG
 const UNREADABLE = String.fromCharCode(0xfffd);
 
 /** A Python string body's value, its escapes decoded. A \N{…} naming anything but printable
- *  ASCII becomes U+FFFD, which no URL or environment name holds. */
-function pythonDecode(body) {
-  return body.replace(PY_ESCAPE, (_, hex, unit, wide, octal, continued, named, single) => {
-    if (hex || unit || wide) return String.fromCodePoint(parseInt(hex ?? unit ?? wide, 16));
+ *  ASCII, or a \U above U+10FFFF, becomes U+FFFD, which no URL or environment name holds. In
+ *  bytes, \u, \U and \N are no escapes and stay as written. */
+function pythonDecode(body, bytes = false) {
+  return body.replace(PY_ESCAPE, (escape, hex, unit, wide, octal, continued, named, single) => {
+    if (bytes && (unit || wide || named !== undefined)) return escape;
+    if (hex || unit || wide) {
+      const point = parseInt(hex ?? unit ?? wide, 16);
+      return point > 0x10ffff ? UNREADABLE : String.fromCodePoint(point);
+    }
     if (octal) return String.fromCharCode(parseInt(octal, 8));
     if (named !== undefined) return PY_ASCII_NAMES.get(named.toUpperCase()) ?? UNREADABLE;
     return continued ? "" : PY_SINGLE_ESCAPES[single];
   });
 }
 
-/** Whether a Python string body has a \N{…} that names anything but printable ASCII. */
-function pythonUnnamed(body) {
-  for (const m of body.matchAll(PY_ESCAPE)) if (m[6] !== undefined && !PY_ASCII_NAMES.has(m[6].toUpperCase())) return true;
+const pythonBytes = (body) => pythonDecode(body, true);
+
+/** Whether a Python string body has an escape this review cannot decode: a \N{…} naming
+ *  anything but printable ASCII, or a \U above U+10FFFF. */
+function pythonUndecodable(body) {
+  for (const m of body.matchAll(PY_ESCAPE)) {
+    if (m[6] !== undefined && !PY_ASCII_NAMES.has(m[6].toUpperCase())) return true;
+    if (m[3] && parseInt(m[3], 16) > 0x10ffff) return true;
+  }
   return false;
 }
+
+// A named escape, \N{…}, as Python's tokenizer takes it: one escape, its braces included.
+const PY_NAMED = /\\N\{[A-Za-z0-9 -]*\}/y;
+
+/** Whether an f-string body has a replacement field. A backslash does not escape a brace, but
+ *  a non-raw named escape's braces are no field. */
+const pythonHasField = (body, raw) =>
+  /\{/.test((raw ? body : body.replace(/\\(?:N\{[A-Za-z0-9 -]*\}|[^{}])/g, "")).replace(/\{\{|\}\}/g, ""));
 const PY_SINGLE_ESCAPES = { "\\": "\\", "'": "'", '"': '"', a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
 // A PEP 263 declaration, on the first line or the second.
 const PY_CODING = /^[ \t\f]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)/;
@@ -636,7 +715,7 @@ function pythonValue(text, parts) {
     if (/[bB]/.test(t.prefix)) return undefined;
     let body = text.slice(...t.body);
     if (/[fFtT]/.test(t.prefix)) {
-      if (/\{/.test(body.replace(/\{\{|\}\}/g, ""))) return undefined;
+      if (pythonHasField(body, /[rR]/.test(t.prefix))) return undefined;
       body = body.replace(/\{\{/g, "{").replace(/\}\}/g, "}");
     }
     if (!/[rR]/.test(t.prefix)) {
@@ -764,9 +843,19 @@ function literalUrls(text, spans, escapes, decode, lineAt) {
     const body = text.slice(start, end);
     if (!body.includes("\\")) continue;
     const writtenAt = placer(body, escapes, decode);
-    for (const m of (decode(body) ?? "").matchAll(URL_IN_CODE)) {
-      const host = hostOf(m[1], m[2]);
+    const value = decode(body) ?? "";
+    for (const m of value.matchAll(URL_IN_CODE)) {
+      const found = hostAt(value, m);
       const at = start + writtenAt(m.index);
+      let { host } = found;
+      if (!host && found.authority.includes(UNREADABLE)) {
+        // A host with a character this review cannot decode, by a Python \N{…}, is named as
+        // written: it is a host all the same.
+        const from = placer(body, escapes, decode);
+        const authority = m.index + m[1].length + 3;
+        const written = body.slice(from(authority), from(authority + found.authority.length));
+        if (/\\N\{/.test(written)) host = written;
+      }
       if (host) urls.push({ host, line: lineAt(at), at });
     }
   }
@@ -795,13 +884,25 @@ export function findReach(source, language, path = "") {
   let spawns;
   let coding = null;
   if (language === "python") {
-    const tokens = pythonTokens(text);
-    const code = blankPythonComments(text, tokens);
-    const strings = tokens.filter((t) => t.type === "string" && !/[rR]/.test(t.prefix)).map((t) => t.body);
-    gather(urls, [...urlsIn(code, lineAt), ...literalUrls(text, strings, PY_ESCAPE, pythonDecode, lineAt)], urlKey);
-    gather(env, envIn(code, language, lineAt), (e) => `${e.at}\0${e.name}`);
-    imports = pythonImports(text, tokens, lineAt);
-    spawns = spawnsIn(language, imports, tokens, lineAt);
+    // Where CPython 3.12 reads a format spec's `{{` as a field and 3.13 as a brace, each
+    // reading is read on its own and what either finds counts, as for JavaScript (SR-08).
+    const first = pythonTokens(text);
+    const found = new Map();
+    const started = new Map();
+    for (const tokens of first.ambiguous ? [first, pythonTokens(text, true)] : [first]) {
+      const code = blankPythonComments(text, tokens);
+      gather(urls, [
+        ...urlsIn(code, lineAt),
+        ...literalUrls(text, pythonLiterals(tokens, false), PY_ESCAPE, pythonDecode, lineAt),
+        ...literalUrls(text, pythonLiterals(tokens, true), PY_ESCAPE, pythonBytes, lineAt),
+      ], urlKey);
+      gather(env, envIn(code, language, lineAt), (e) => `${e.at}\0${e.name}`);
+      const read = pythonImports(text, tokens, lineAt);
+      gather(found, read, (i) => `${i.at}\0${i.specifier}`);
+      gather(started, spawnsIn(language, read, tokens, lineAt), (x) => `${x.at}\0${x.what}`);
+    }
+    imports = [...found.values()];
+    spawns = [...started.values()];
     coding = pythonCoding(text);
   } else {
     // Node reads a .cjs or .cts file as a script and a .mjs or .mts file as a module; a .js or
@@ -811,7 +912,7 @@ export function findReach(source, language, path = "") {
     // reading's misreading hides code and no mix of two readings makes up code.
     const found = new Map();
     for (const r of javaScriptReadings(text, goal)) {
-      gather(urls, [...urlsIn(r.code, lineAt), ...literalUrls(text, r.literals, JS_ESCAPE, jsValue, lineAt)], urlKey);
+      gather(urls, [...urlsIn(r.code, lineAt), ...literalUrls(text, r.literals, JS_ESCAPE, jsLenient, lineAt)], urlKey);
       gather(env, envIn(r.code, language, lineAt), (e) => `${e.at}\0${e.name}`);
       // The same text read as an ES import by one reading and a require by another is two
       // imports: Node resolves the two differently.

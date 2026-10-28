@@ -2,7 +2,7 @@
 // SR-14, SR-22, SR-23), and say what was accepted knowingly (SR-17) and what was not
 // checked (SR-18).
 import { dirname, isAbsolute, posix, relative, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { domainToUnicode, fileURLToPath, pathToFileURL } from "node:url";
 import { findReach, isCredentialName, languageOf } from "./reach.mjs";
 import { ships } from "./read-package.mjs";
 import { secretsIn } from "./secrets.mjs";
@@ -305,21 +305,28 @@ function hostOfUrl(value) {
 
 /** Whether a JavaScript import loads code this review does not read. `urls` are the URLs
  *  SR-08 found in the same program. */
-function jsLoadsUnread(pkg, program, { value, esm, line, undecodable }, urls) {
+function jsLoadsUnread(pkg, program, { specifier, value, esm, line, undecodable }, urls) {
   // A specifier this review cannot decode might name any module (SR-22).
   if (undecodable) return true;
   if (RELATIVE.test(value)) {
     const target = relativeTarget(pkg, program, value, esm);
     return target !== null && !loadsShipped(pkg, target.path, target.folderOnly);
   }
-  // A `node:` URL names a built-in, or nothing Node will load.
-  if (/^node:/i.test(value) && URL.canParse(value)) return false;
+  // A `node:` URL names a built-in, or nothing Node will load; so does any `node:` name to
+  // CommonJS, which looks no further than its built-ins.
+  if ((/^node:/i.test(value) && URL.canParse(value)) || (!esm && value.startsWith("node:"))) return false;
   if (NOT_FILES.test(value)) {
-    // A URL is refused here unless SR-08 refuses it already. One that does not parse, such as
-    // `https:` or `node://[`, is a package name to Node, which may load anything, so it is
-    // refused too.
+    // A URL is refused here unless SR-08 refuses it already, on any line its literal spans.
+    const last = line + (specifier.match(/\n/g)?.length ?? 0);
+    const refused = urls.filter((u) => u.line >= line && u.line <= last);
     const host = hostOfUrl(value);
-    return host === null || !urls.some((u) => u.line === line && u.host === host);
+    if (host !== null) return !refused.some((u) => u.host === host);
+    // One that does not parse, such as `https:` or `node://[`, is a package name to Node,
+    // which may load anything, so it is refused too: unless SR-08 refuses a host in it, or it
+    // is an ES module import Node rejects as a package name, one with `%` or `\`.
+    if (esm && /[%\\]/.test(value.split("/")[0])) return false;
+    const lower = value.toLowerCase();
+    return !refused.some((u) => lower.includes(u.host) || lower.includes(domainToUnicode(u.host)));
   }
   if (ABSOLUTE.test(value)) return true;
   const scope = nearestManifest(pkg, program);
