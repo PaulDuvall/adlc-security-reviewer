@@ -2,7 +2,7 @@
 // SR-14, SR-22, SR-23), and say what was accepted knowingly (SR-17) and what was not
 // checked (SR-18).
 import { dirname, isAbsolute, posix, relative, resolve, sep } from "node:path";
-import { domainToUnicode, fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { findReach, isCredentialName, languageOf } from "./reach.mjs";
 import { ships } from "./read-package.mjs";
 import { secretsIn } from "./secrets.mjs";
@@ -303,9 +303,9 @@ function hostOfUrl(value) {
   try { return new URL(value).hostname.replace(/\.+$/, "") || null; } catch { return null; }
 }
 
-/** Whether a JavaScript import loads code this review does not read. `urls` are the URLs
- *  SR-08 found in the same program. */
-function jsLoadsUnread(pkg, program, { specifier, value, esm, line, undecodable }, urls) {
+/** Whether a JavaScript import loads code this review does not read. `refused` holds the
+ *  hosts SR-08 refuses in the same program, each as its line, a NUL, and the host. */
+function jsLoadsUnread(pkg, program, { specifier, value, esm, line, undecodable, host }, refused) {
   // A specifier this review cannot decode might name any module (SR-22).
   if (undecodable) return true;
   if (RELATIVE.test(value)) {
@@ -316,17 +316,18 @@ function jsLoadsUnread(pkg, program, { specifier, value, esm, line, undecodable 
   // CommonJS, which looks no further than its built-ins.
   if ((/^node:/i.test(value) && URL.canParse(value)) || (!esm && value.startsWith("node:"))) return false;
   if (NOT_FILES.test(value)) {
-    // A URL is refused here unless SR-08 refuses it already, on any line its literal spans.
-    const last = line + (specifier.match(/\n/g)?.length ?? 0);
-    const refused = urls.filter((u) => u.line >= line && u.line <= last);
-    const host = hostOfUrl(value);
-    if (host !== null) return !refused.some((u) => u.host === host);
-    // One that does not parse, such as `https:` or `node://[`, is a package name to Node,
-    // which may load anything, so it is refused too: unless SR-08 refuses a host in it, or it
-    // is an ES module import Node rejects as a package name, one with `%` or `\`.
-    if (esm && /[%\\]/.test(value.split("/")[0])) return false;
-    const lower = value.toLowerCase();
-    return !refused.some((u) => lower.includes(u.host) || lower.includes(domainToUnicode(u.host)));
+    // A URL is refused here unless SR-08 refuses it already: its own host, as SR-08 reads it
+    // from the specifier, on any line the specifier's literal spans.
+    const own = host ?? hostOfUrl(value);
+    if (own !== null) {
+      const last = line + (specifier.match(/\n/g)?.length ?? 0);
+      for (let l = line; l <= last; l += 1) if (refused.has(`${l}\0${own}`)) return false;
+      return true;
+    }
+    // One with no host, such as `https:` or `node://[`, is a package name to Node, which may
+    // load anything, so it is refused too, unless it is an ES module import Node rejects as a
+    // package name, one with `%` or `\` before its first `/`.
+    return !(esm && /[%\\]/.test(value.split("/")[0]));
   }
   if (ABSOLUTE.test(value)) return true;
   const scope = nearestManifest(pkg, program);
@@ -394,8 +395,10 @@ function unreadCode(pkg) {
     }
     // One refusal per system and line, though two readings may each load it.
     const refused = new Set();
+    // The hosts SR-08 refuses in this program, by line.
+    const reached = new Set(p.reach.urls.map((u) => `${u.line}\0${u.host}`));
     for (const i of p.reach.imports) {
-      const system = python ? pythonUnread(i) : jsLoadsUnread(pkg, p.path, i, p.reach.urls) ? i.specifier : null;
+      const system = python ? pythonUnread(i) : jsLoadsUnread(pkg, p.path, i, reached) ? i.specifier : null;
       if (system !== null && !refused.has(`${i.line}\0${system}`)) {
         refused.add(`${i.line}\0${system}`);
         out.push(refuse("unread-code", `the program loads ${system}, which this review does not read`,

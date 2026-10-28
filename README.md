@@ -22,8 +22,9 @@ Status on 28 October 2026. Spec 0.3.0, its 180 tests and round 15's licence, not
 security policy are locked at `3030158`, and every check on GitHub passes. The tests catch 91.8% of
 the bugs planted in round 13's code. Round 17 sorted the 293 they miss: 34 showed 17 real
 bugs, all fixed, and 70 more are tests the suite lacks. Round 18's review of those fixes found
-13 regressions and 14 older bugs, all fixed. Open: 28 decisions the spec leaves open, and the
-104 tests round 17 found missing.
+13 regressions and 14 older bugs, all fixed. Round 19's review of round 18 found 14 regressions
+and 14 older bugs, all fixed. Open: 28 decisions the spec leaves open, the 104 tests round 17
+found missing, and URL forms the spec leaves unrefused though Node reaches their host.
 
 | | Check | Result |
 |---|---|---|
@@ -33,8 +34,8 @@ bugs, all fixed, and 70 more are tests the suite lacks. Round 18's review of tho
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 35 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
-| ✅ | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Now, on round 13's code and 180 tests: 91.8% of all 3,557, with 293 surviving, measured before the fixes of rounds 17 and 18. Before the spec 0.3.0 reopen, on 87 tests: 70.8% of 3,464. Round 8: 67.4% of 3,304 |
-| 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [17 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21; round 17 added U22 |
+| ✅ | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Now, on round 13's code and 180 tests: 91.8% of all 3,557, with 293 surviving, measured before the fixes of rounds 17 to 19. Before the spec 0.3.0 reopen, on 87 tests: 70.8% of 3,464. Round 8: 67.4% of 3,304 |
+| 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [17 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21; round 17 added U22. Round 19 lists [URL forms SR-08 leaves unrefused](docs/rounds.md#rounds) for the spec owner |
 
 ## What it does for users
 
@@ -276,7 +277,7 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 1,770 lines<br/>Node built-ins only<br/>18 rounds"]
+  cod["<b>Code</b> ✅<br/>6 programs, 2,043 lines<br/>Node built-ins only<br/>19 rounds"]
   nxt["<b>Next</b><br/>104 missing tests added<br/>28 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
@@ -285,7 +286,7 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in eighteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+The Code stage ran in nineteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
 other rounds attacked the code and fixed what broke, except rounds 10, 14 and 15, which changed
 the checks and files around it, and round 16, which measured the tests.
 [docs/rounds.md](docs/rounds.md) has the full record.
@@ -310,6 +311,7 @@ the checks and files around it, and round 16, which measured the tests.
 | 16 | Plant all 3,557 bugs in round 13's code and run the 180 tests on each | The tests caught 91.8%, up from 70.8% before the spec 0.3.0 reopen. Of the bugs the 87 tests missed and that can be matched, 78% are now caught, and no bug caught before is missed now. 293 survive, not yet sorted |
 | 17 | Sort the 293 surviving planted bugs: for each, a request whose answer it changes, or a reason nothing can, then a skeptic's re-check | 17 real bugs, all fixed. The worst: a URL hidden by `++` after a line end, by `extends /…/` or by `for await (`; a Python import swallowed by an f-string; `import "https:"` loading unshipped tests; an astral character that made the reviewer loop forever. 70 more are tests the suite lacks. Checked against CPython, V8 and Node, with no difference left in what they run |
 | 18 | Attack round 17's fixes: four reviews, a skeptic per finding, each finding run before and after | 27 confirmed, all fixed. 13 were regressions round 17 made, such as an escaped quote in a Python format spec that hid an import, and a property named `for` that hid a URL. 14 were older, such as a host written `☃.example`, `os.getenv(f"API_KEY")`, and a name search that took 42 s; it now takes 133 ms. Checked again against CPython, V8 and Node |
+| 19 | Attack round 18's fixes the same way, then compare the reviewer with Node's URL parser on 160,000 generated URLs | 27 confirmed, all fixed. 14 were regressions round 18 made, such as an escaped URL in a Python format spec that was hidden again, and a time that grew with the square of the URLs. 13 were older, such as a Python name in triple quotes. The URL comparison found one more: `fetch("https://«.evil.example/")` passed, though Node sends it to a host under evil.example; fixed. Some URL forms pass because the spec says so, such as `https:///evil.example/`; they are listed for the spec owner |
 
 ## How the tests stay honest
 
