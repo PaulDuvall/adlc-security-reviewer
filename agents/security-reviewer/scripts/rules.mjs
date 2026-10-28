@@ -298,11 +298,6 @@ function relativeTarget(pkg, program, value, esm) {
   return { path: rel, folderOnly: !rel || /(?:^|\/)\.{0,2}$/.test(written) };
 }
 
-/** The host a URL names, as SR-08 reports it, or null when it does not parse. */
-function hostOfUrl(value) {
-  try { return new URL(value).hostname.replace(/\.+$/, "") || null; } catch { return null; }
-}
-
 /** Whether a JavaScript import loads code this review does not read. `refused` holds the
  *  hosts SR-08 refuses in the same program, each as its line, a NUL, and the host. */
 function jsLoadsUnread(pkg, program, { specifier, value, esm, line, undecodable, host }, refused) {
@@ -312,22 +307,26 @@ function jsLoadsUnread(pkg, program, { specifier, value, esm, line, undecodable,
     const target = relativeTarget(pkg, program, value, esm);
     return target !== null && !loadsShipped(pkg, target.path, target.folderOnly);
   }
-  // A `node:` URL names a built-in, or nothing Node will load; so does any `node:` name to
-  // CommonJS, which looks no further than its built-ins.
-  if ((/^node:/i.test(value) && URL.canParse(value)) || (!esm && value.startsWith("node:"))) return false;
-  if (NOT_FILES.test(value)) {
+  // Node takes an ES specifier that parses as a URL for that URL, as the parser reads it:
+  // leading and trailing spaces and controls dropped, and every tab and line end, so that
+  // " data:…" loads data:. A `node:` URL names a built-in, or nothing Node will load; so does
+  // any `node:` name to CommonJS, which looks no further than its built-ins. To CommonJS a
+  // name such as `NODE:fs`, a `node:` URL as SR-22 reads it, is a package's name.
+  const parsed = esm && URL.canParse(value) ? new URL(value).protocol : null;
+  if (parsed === "node:" || (!esm && /^node:/i.test(value))) return false;
+  if (parsed || NOT_FILES.test(value)) {
     // A URL is refused here unless SR-08 refuses it already: its own host, as SR-08 reads it
-    // from the specifier, on any line the specifier's literal spans.
-    const own = host ?? hostOfUrl(value);
-    if (own !== null) {
+    // from the specifier, on any line the specifier's literal spans. One SR-08 reads no host
+    // from is refused, whatever other URL shares its lines.
+    if (host) {
       const last = line + (specifier.match(/\n/g)?.length ?? 0);
-      for (let l = line; l <= last; l += 1) if (refused.has(`${l}\0${own}`)) return false;
+      for (let l = line; l <= last; l += 1) if (refused.has(`${l}\0${host}`)) return false;
       return true;
     }
-    // One with no host, such as `https:` or `node://[`, is a package name to Node, which may
-    // load anything, so it is refused too, unless it is an ES module import Node rejects as a
-    // package name, one with `%` or `\` before its first `/`.
-    return !(esm && /[%\\]/.test(value.split("/")[0]));
+    // One that does not parse, such as `https:` or `node://[`, is a package name to Node,
+    // which may load anything, so it is refused too, unless it is an ES module import Node
+    // rejects as a package name, one with `%` or `\` before its first `/`.
+    return !(esm && !parsed && /[%\\]/.test(value.split("/")[0]));
   }
   if (ABSOLUTE.test(value)) return true;
   const scope = nearestManifest(pkg, program);

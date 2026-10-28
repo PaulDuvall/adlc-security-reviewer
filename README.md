@@ -23,9 +23,12 @@ security policy are locked at `3030158`, and every check on GitHub passes. The t
 the bugs planted in round 13's code. Round 17 sorted the 293 they miss: 34 showed 17 real
 bugs, all fixed, and 70 more are tests the suite lacks. Round 18's review of those fixes found
 13 regressions and 14 older bugs, all fixed. Round 19's review of round 18 found 14 regressions
-and 14 older bugs, all fixed. Open: 28 decisions the spec leaves open, the 104 tests round 17
-found missing, and URL forms the spec leaves unrefused though Node reaches their host. Round 20, a
-review of round 19, is under way: [its 32 findings so far](docs/rounds.md#handoff) are being checked.
+and 14 older bugs, all fixed. Round 20 confirmed 29 of the review of round 19's 32 findings,
+16 of them regressions, and 9 more in the rules for loading code, all fixed. It also rebuilt the
+comparisons with CPython, V8 and Node, which found older bugs the earlier ones never reached,
+all fixed. A review of round 20's own fixes found 22 regressions and 7 older bugs, all fixed; a
+second review of the last of them was still running at this push. Open: 29 decisions the spec leaves open, the 104 tests round 17 found missing, and URL
+forms the spec leaves unrefused though Node reaches their host.
 
 | | Check | Result |
 |---|---|---|
@@ -35,8 +38,8 @@ review of round 19, is under way: [its 32 findings so far](docs/rounds.md#handof
 | ✅ | Role checks | 4 of 4 pass. These are the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires. The check is local: no official one is published yet |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 35 files, including the spec and the tests. Changing any of them fails the checks on GitHub |
-| ✅ | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Now, on round 13's code and 180 tests: 91.8% of all 3,557, with 293 surviving, measured before the fixes of rounds 17 to 19. Before the spec 0.3.0 reopen, on 87 tests: 70.8% of 3,464. Round 8: 67.4% of 3,304 |
-| 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [17 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21; round 17 added U22. Round 19 lists [URL forms SR-08 leaves unrefused](docs/rounds.md#rounds) for the spec owner |
+| ✅ | Planted-bug check | Small bugs are planted in copies of the code to see how many the tests catch; the usual target is 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Now, on round 13's code and 180 tests: 91.8% of all 3,557, with 293 surviving, measured before the fixes of rounds 17 to 20. Before the spec 0.3.0 reopen, on 87 tests: 70.8% of 3,464. Round 8: 67.4% of 3,304 |
+| 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [18 points where the spec is still silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle). Spec 0.3.0 settled 5 of 21; round 17 added U22, and round 20 U23. Rounds 19 and 20 list [URL forms SR-08 leaves unrefused](docs/rounds.md#rounds) for the spec owner |
 
 ## What it does for users
 
@@ -262,6 +265,9 @@ against a publisher who sets out to get past it. These pass today:
 | Links to folders | Files reached only through a symbolic link to a folder are not read | [Open question 10](docs/spec.md#open-questions) |
 | Old npm lockfiles | A version-1 `package-lock.json` has no entries the pin check reads, so an unpinned one passes without a mention | [Open question 11](docs/spec.md#open-questions) |
 | An alias of the environment | `const e = process.env; e.BILLING_API_KEY` is not seen as a read | [U10](docs/rounds.md#points-the-statement-does-not-settle) |
+| A relative module name with a package | `importlib.import_module(".helpers", "tests")` loads `tests.helpers`, but the name as written has no `tests` part | [U23](docs/rounds.md#points-the-statement-does-not-settle) |
+| Unusual URL forms | `fetch("https:// x@evil.example/")` and `` fetch("https://«`.evil.example/") `` pass, though Node sends each to a host under evil.example | [Rounds 19 and 20](docs/rounds.md#rounds), U8 |
+| A comment after a Python debug field's `=` | CPython 3.14 keeps such a comment in the field's debug text, so a URL in it is string text there; the reviewer misses it, in 53 of 36,310 generated f-string programs | [Round 20](docs/rounds.md#rounds) |
 | Addresses built at runtime | A host or module path computed by the code, such as `` `https://${host}/` ``, is not refused. `not_checked` says such destinations were not checked | [U8](docs/rounds.md#points-the-statement-does-not-settle) |
 | Credentials of other kinds | Shipped files are searched for 7 patterns: private keys, PKCS#12 keystores, service-account keys, AWS keys and NKey seeds. Any other secret string passes | SR-13 |
 
@@ -278,8 +284,8 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 2,043 lines<br/>Node built-ins only<br/>19 rounds"]
-  nxt["<b>Next</b><br/>104 missing tests added<br/>28 open decisions settled"]
+  cod["<b>Code</b> ✅<br/>6 programs, 2,805 lines<br/>Node built-ins only<br/>20 rounds"]
+  nxt["<b>Next</b><br/>104 missing tests added<br/>29 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
   classDef next stroke:#9a6700,stroke-width:2px,stroke-dasharray:4
@@ -287,7 +293,7 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in nineteen rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+The Code stage ran in twenty rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
 other rounds attacked the code and fixed what broke, except rounds 10, 14 and 15, which changed
 the checks and files around it, and round 16, which measured the tests.
 [docs/rounds.md](docs/rounds.md) has the full record.
@@ -313,6 +319,7 @@ the checks and files around it, and round 16, which measured the tests.
 | 17 | Sort the 293 surviving planted bugs: for each, a request whose answer it changes, or a reason nothing can, then a skeptic's re-check | 17 real bugs, all fixed. The worst: a URL hidden by `++` after a line end, by `extends /…/` or by `for await (`; a Python import swallowed by an f-string; `import "https:"` loading unshipped tests; an astral character that made the reviewer loop forever. 70 more are tests the suite lacks. Checked against CPython, V8 and Node, with no difference left in what they run |
 | 18 | Attack round 17's fixes: four reviews, a skeptic per finding, each finding run before and after | 27 confirmed, all fixed. 13 were regressions round 17 made, such as an escaped quote in a Python format spec that hid an import, and a property named `for` that hid a URL. 14 were older, such as a host written `☃.example`, `os.getenv(f"API_KEY")`, and a name search that took 42 s; it now takes 133 ms. Checked again against CPython, V8 and Node |
 | 19 | Attack round 18's fixes the same way, then compare the reviewer with Node's URL parser on 160,000 generated URLs | 27 confirmed, all fixed. 14 were regressions round 18 made, such as an escaped URL in a Python format spec that was hidden again, and a time that grew with the square of the URLs. 13 were older, such as a Python name in triple quotes. The URL comparison found one more: `fetch("https://«.evil.example/")` passed, though Node sends it to a host under evil.example; fixed. Some URL forms pass because the spec says so, such as `https:///evil.example/`; they are listed for the spec owner |
+| 20 | Check the review of round 19's 32 findings, attack the rules for loading code again, rebuild the comparisons with CPython, V8 and Node, then attack round 20's own fixes | 29 of the 32 confirmed and 9 more in the rules, all fixed; 16 were regressions round 19 made, such as an escaped URL in a raw Python format spec hidden again. The rebuilt comparisons found older bugs: V8 found code hidden after `break`, `debugger` or `var v` and a line end in 134 of 20,000 programs, and CPython imports hidden behind `(importlib.import_module)(…)`. The review of round 20's fixes found 22 regressions, such as `from` or `let` used as a name hiding a URL, and a 50-byte Python file that never finished, and 7 older bugs; all fixed. Now V8 finds no hidden code in 90,000 programs, and CPython no missed import in 60,000 |
 
 ## How the tests stay honest
 
@@ -346,7 +353,8 @@ Only the spec owner can change the spec or the tests. Each change shows in git a
 | 104 tests round 17 found missing: 70 suite gaps, and 34 planted bugs that showed the 17 bugs it fixed | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#test-ideas-from-round-17) |
 | Optional: apply the two rulesets `tools/handoff.sh` now sets, the owner's bypass on the `handoff` tag and main's review gate. Until then a re-lock lifts the tag's ruleset, and main takes any admin's push | Spec owner | [docs/rounds.md](docs/rounds.md), round 15; `tools/handoff.sh` |
 | 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Needs input from AgentMesh: 4, not yet raised with them | [docs/spec.md](docs/spec.md#open-questions) |
-| 17 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
+| 18 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
+| URL forms that pass, though Node's URL parser sends them to a host: some because SR-08 reads them so, such as `https:// x@evil.example/`, and some by the code's own rule that a host it finds past a bracket or quotation mark holds a letter or a digit, such as `` https://«`.evil.example/ `` | Spec owner | [docs/rounds.md](docs/rounds.md#rounds), rounds 19 and 20 |
 | On a developer's own machine, the lock check skips files that local git settings hide: `.git/info/exclude`, global excludes or an untracked `.gitignore`. The checks on GitHub are unaffected | Spec owner; accepted as a known limit | [docs/rounds.md](docs/rounds.md), round 10 |
 
 ## How this repository is built
