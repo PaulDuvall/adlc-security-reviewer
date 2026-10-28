@@ -116,7 +116,7 @@ function undeclaredReach(pkg) {
         `the program reads the credential-like variable ${e.name}, which the runtime requirements do not bind`,
         { system: e.name, file: p.path, line: e.line }) })),
     ];
-    out.push(...found.sort((a, b) => a.line - b.line).map((x) => x.r));
+    for (const x of found.sort((a, b) => a.line - b.line)) out.push(x.r);
   }
   return out;
 }
@@ -267,7 +267,7 @@ function mapTargets(map, key) {
     // A `*` matches one character or more, as Node matches it.
     if (after === undefined || more !== undefined || key.length < k.length || !key.startsWith(before) || !key.endsWith(after)) continue;
     const part = key.slice(before.length, key.length - after.length);
-    found.push(...strings(map[k]).map((t) => t.replaceAll("*", part)));
+    for (const t of strings(map[k])) found.push(t.replaceAll("*", part));
   }
   return found.length ? found : null;
 }
@@ -429,8 +429,9 @@ function mcpServers(pkg) {
       out.push(refuse("unreadable", `${path} is not a JSON object whose mcpServers is a map of servers by name`, { file: path }));
       continue;
     }
-    out.push(...Object.keys(config.mcpServers).filter((name) => !declared.has(name)).map((name) => refuse("undeclared-reach",
-      `${path} names the MCP server ${name}, which the descriptor does not declare`, { system: name, file: path })));
+    for (const name of Object.keys(config.mcpServers).filter((key) => !declared.has(key))) {
+      out.push(refuse("undeclared-reach", `${path} names the MCP server ${name}, which the descriptor does not declare`, { system: name, file: path }));
+    }
   }
   return out;
 }

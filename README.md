@@ -26,8 +26,9 @@ bugs, all fixed, and 70 more are tests the suite lacks. Round 18's review of tho
 and 14 older bugs, all fixed. Round 20 confirmed 29 of the review of round 19's 32 findings,
 16 of them regressions, and 9 more in the rules for loading code, all fixed. It also rebuilt the
 comparisons with CPython, V8 and Node, which found older bugs the earlier ones never reached,
-all fixed. A review of round 20's own fixes found 22 regressions and 7 older bugs, all fixed; a
-second review of the last of them was still running at this push. Open: 29 decisions the spec leaves open, the 104 tests round 17 found missing, and URL
+all fixed. A review of round 20's own fixes found 22 regressions and 7 older bugs, all fixed.
+Round 21's second review of the last of them found 8 regressions and 4 older bugs, most in how
+Python's `=` debug text is read, all fixed; that reading now matches CPython's own source. Open: 29 decisions the spec leaves open, the 104 tests round 17 found missing, and URL
 forms the spec leaves unrefused though Node reaches their host.
 
 | | Check | Result |
@@ -267,7 +268,6 @@ against a publisher who sets out to get past it. These pass today:
 | An alias of the environment | `const e = process.env; e.BILLING_API_KEY` is not seen as a read | [U10](docs/rounds.md#points-the-statement-does-not-settle) |
 | A relative module name with a package | `importlib.import_module(".helpers", "tests")` loads `tests.helpers`, but the name as written has no `tests` part | [U23](docs/rounds.md#points-the-statement-does-not-settle) |
 | Unusual URL forms | `fetch("https:// x@evil.example/")` and `` fetch("https://«`.evil.example/") `` pass, though Node sends each to a host under evil.example | [Rounds 19 and 20](docs/rounds.md#rounds), U8 |
-| A comment after a Python debug field's `=` | CPython 3.14 keeps such a comment in the field's debug text, so a URL in it is string text there; the reviewer misses it, in 53 of 36,310 generated f-string programs | [Round 20](docs/rounds.md#rounds) |
 | Addresses built at runtime | A host or module path computed by the code, such as `` `https://${host}/` ``, is not refused. `not_checked` says such destinations were not checked | [U8](docs/rounds.md#points-the-statement-does-not-settle) |
 | Credentials of other kinds | Shipped files are searched for 7 patterns: private keys, PKCS#12 keystores, service-account keys, AWS keys and NKey seeds. Any other secret string passes | SR-13 |
 
@@ -284,7 +284,7 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 2,805 lines<br/>Node built-ins only<br/>20 rounds"]
+  cod["<b>Code</b> ✅<br/>6 programs, 2,880 lines<br/>Node built-ins only<br/>21 rounds"]
   nxt["<b>Next</b><br/>104 missing tests added<br/>29 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
@@ -293,7 +293,7 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in twenty rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
+The Code stage ran in twenty-one rounds. Round 1 wrote the code, and round 5 built spec 0.2.0. The
 other rounds attacked the code and fixed what broke, except rounds 10, 14 and 15, which changed
 the checks and files around it, and round 16, which measured the tests.
 [docs/rounds.md](docs/rounds.md) has the full record.
@@ -320,6 +320,7 @@ the checks and files around it, and round 16, which measured the tests.
 | 18 | Attack round 17's fixes: four reviews, a skeptic per finding, each finding run before and after | 27 confirmed, all fixed. 13 were regressions round 17 made, such as an escaped quote in a Python format spec that hid an import, and a property named `for` that hid a URL. 14 were older, such as a host written `☃.example`, `os.getenv(f"API_KEY")`, and a name search that took 42 s; it now takes 133 ms. Checked again against CPython, V8 and Node |
 | 19 | Attack round 18's fixes the same way, then compare the reviewer with Node's URL parser on 160,000 generated URLs | 27 confirmed, all fixed. 14 were regressions round 18 made, such as an escaped URL in a Python format spec that was hidden again, and a time that grew with the square of the URLs. 13 were older, such as a Python name in triple quotes. The URL comparison found one more: `fetch("https://«.evil.example/")` passed, though Node sends it to a host under evil.example; fixed. Some URL forms pass because the spec says so, such as `https:///evil.example/`; they are listed for the spec owner |
 | 20 | Check the review of round 19's 32 findings, attack the rules for loading code again, rebuild the comparisons with CPython, V8 and Node, then attack round 20's own fixes | 29 of the 32 confirmed and 9 more in the rules, all fixed; 16 were regressions round 19 made, such as an escaped URL in a raw Python format spec hidden again. The rebuilt comparisons found older bugs: V8 found code hidden after `break`, `debugger` or `var v` and a line end in 134 of 20,000 programs, and CPython imports hidden behind `(importlib.import_module)(…)`. The review of round 20's fixes found 22 regressions, such as `from` or `let` used as a name hiding a URL, and a 50-byte Python file that never finished, and 7 older bugs; all fixed. Now V8 finds no hidden code in 90,000 programs, and CPython no missed import in 60,000 |
+| 21 | Attack round 20's last fixes, then check the reading of Python's `=` debug text against CPython's own source | 12 confirmed, all fixed. 8 were regressions round 20 made, such as nested debug fields that ran the review out of memory, and an `import_module` call after `match` that was missed. 4 were older, such as a URL in debug text that CPython 3.13 keeps but the review blanked. The reading of debug text now matches CPython 3.12, 3.13 and 3.14 on all 5,308 generated fields, and CPython's f-string comparison misses 1 URL in 54,415 programs, from 87 |
 
 ## How the tests stay honest
 

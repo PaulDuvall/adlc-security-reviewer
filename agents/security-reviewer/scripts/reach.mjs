@@ -479,6 +479,8 @@ const PY_STRING_PREFIX = /^(?:[uU]|[rR]|[bBfFtT]|[rR][bBfFtT]|[bBfFtT][rR])$/;
 function pythonTokens(text, legacy = false, templates = true) {
   const tokens = [];
   let ambiguous = false; // whether a format spec has a `{{` that 3.12 reads otherwise
+  const debugFields = []; // the expression text of each non-raw f-string field with an `=`
+  const writtenFields = []; // that of each field with an `=`, and of each t-string field
   const n = text.length;
   const lineEnd = (i) => { PY_LINE_END.lastIndex = i; const m = PY_LINE_END.exec(text); return m ? m.index : n; };
   const breakLength = (i) => (text.startsWith("\r\n", i) ? 2 : 1);
@@ -488,15 +490,23 @@ function pythonTokens(text, legacy = false, templates = true) {
   // `owner` its token.
   function code(i, inField, close, raw, owner) {
     const field = i;
-    const mark = tokens.length; // the tokens from here on are this field's, or of fields nested in it
     const site = inField ? field : -1; // where the code a string stands in begins
     let depth = 0;
+    let debug = false; // whether an `=` ends the field's expression
+    let conversion = -1; // where a conversion's `!` ends it
+    // A field's expression is its text up to its conversion, its format spec or its end. With
+    // an `=` it is debug text, part of the string; a t-string keeps it in each interpolation.
+    const expression = (end) => {
+      if (conversion !== -1) end = conversion;
+      if (debug && !raw) debugFields.push([field, end]);
+      if (debug || /[tT]/.test(owner.prefix)) writtenFields.push([field, end]);
+    };
     while (i < n) {
       const c = text[i];
       if (c === "\\" && (text[i + 1] === "\n" || text[i + 1] === "\r")) { i += 1 + breakLength(i + 1); continue; }
       if (c === "#") {
         const end = lineEnd(i);
-        tokens.push({ type: "comment", start: i, end, field: inField, of: field });
+        tokens.push({ type: "comment", start: i, end, field: inField });
         i = end;
         continue;
       }
@@ -516,29 +526,10 @@ function pythonTokens(text, legacy = false, templates = true) {
         continue;
       }
       if (c === "'" || c === '"') { i = string(i, i, inField, site); continue; }
-      if (inField && !depth && c === "}") return i + 1;
-      if (inField && !depth && c === ":") return formatSpec(i + 1, close, raw, owner);
-      // An `=` that ends a field's expression makes debug text, the field's text through it,
-      // part of the string. CPython 3.13 and later keep it as written, less the field's own
-      // comments; a comment of a field nested in it stays. 3.12 cuts every `#` to its line's
-      // end, in a string too, and decodes the escapes of what is left, or in a raw f-string
-      // keeps it as written.
-      if (inField && !depth && c === "=" && !/[=!<>]/.test(text[i - 1]) && text[i + 1] !== "=" && debugEnds(i + 1)) {
-        owner.kept.push([field, i + 1]);
-        for (let k = mark; k < tokens.length; k += 1) {
-          const t = tokens[k];
-          if (t.type === "comment" && t.of !== field && t.end <= i + 1) owner.notes.push([t.start, t.end]);
-        }
-        if (!raw) {
-          let from = field;
-          let cut = false;
-          for (let h = field; h <= i; h += 1) {
-            if (cut) { if (text[h] === "\n" || text[h] === "\r") { cut = false; from = h; } continue; }
-            if (text[h] === "#") { if (h > from) owner.debug.push([from, h]); cut = true; }
-          }
-          if (!cut && i + 1 > from) owner.debug.push([from, i + 1]);
-        }
-      }
+      if (inField && !depth && c === "}") { expression(i); return i + 1; }
+      if (inField && !depth && c === ":") { expression(i); return formatSpec(i + 1, close, raw, owner); }
+      if (inField && !depth && c === "!" && text[i + 1] !== "=" && conversion === -1) conversion = i;
+      if (inField && !depth && !debug && c === "=" && !/[=!<>]/.test(text[i - 1]) && text[i + 1] !== "=" && debugEnds(i + 1)) debug = true;
       if (c === "(" || c === "[" || c === "{") depth += 1;
       else if ((c === ")" || c === "]" || c === "}") && depth) depth -= 1;
       tokens.push({ type: "op", start: i, end: i + 1, text: c, field: inField, site });
@@ -616,7 +607,7 @@ function pythonTokens(text, legacy = false, templates = true) {
     const close = text.startsWith(q.repeat(3), at) ? q.repeat(3) : q;
     const formatted = /[fFtT]/.test(prefix);
     const raw = /[rR]/.test(prefix);
-    const token = { type: "string", start, end: n, prefix, body: [at + close.length, n], fields: [], specs: [], debug: [], kept: [], notes: [], field: inField, site };
+    const token = { type: "string", start, end: n, prefix, body: [at + close.length, n], fields: [], specs: [], kept: [], field: inField, site };
     tokens.push(token);
     let j = at + close.length;
     while (j < n) {
@@ -637,28 +628,109 @@ function pythonTokens(text, legacy = false, templates = true) {
   }
 
   code(0, false);
-  return Object.assign(tokens, { ambiguous });
+  // CPython 3.12 cuts each `#` of debug text to its line's end, in a string too, and decodes
+  // the escapes of what is left. 3.13 and later keep it as written, less the comments their
+  // own scan finds.
+  return Object.assign(tokens, { ambiguous, debug: cutAtHashes(text, debugFields), written: pythonWritten(text, writtenFields) });
+}
+
+/** The text that some field's 3.12 debug text keeps, each field less every `#` in it to its
+ *  line's end, the line end kept: in order and apart. A field nested in another keeps what
+ *  follows its own start, though a `#` before it on its line cuts the field around it there.
+ *  So a character is kept where no `#` stands between it and the later of its line's start
+ *  and the start of the innermost field around it; fields nest, so one sweep finds each. */
+function cutAtHashes(text, fields) {
+  const sorted = [...fields].sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  const out = [];
+  const around = []; // the fields around the position, the innermost last
+  let k = 0;
+  let hash = -1; // the last `#` so far
+  let line = -1; // the last line end so far
+  let start = -1; // where the text kept now began
+  for (let p = 0; k < sorted.length || around.length; p += 1) {
+    while (around.length && around.at(-1)[1] <= p) around.pop();
+    if (!around.length) {
+      if (start !== -1) { out.push([start, p]); start = -1; }
+      if (k === sorted.length) break;
+      p = Math.max(p, sorted[k][0]);
+    }
+    while (k < sorted.length && sorted[k][0] <= p) { if (sorted[k][1] > p) around.push(sorted[k]); k += 1; }
+    if (!around.length) { p -= 1; continue; }
+    if (text[p] === "#") hash = p;
+    else if (text[p] === "\n" || text[p] === "\r") line = p;
+    const kept = hash < Math.max(around.at(-1)[0], line + 1);
+    if (kept && start === -1) start = p;
+    else if (!kept && start !== -1) { out.push([start, p]); start = -1; }
+  }
+  return out;
+}
+
+/** CPython 3.13's and 3.14's scan of a field's expression text, from `from` to `to`, which
+ *  follows quotes one character at a time: whether it finds a `#` outside them or, given
+ *  `out`, the pieces it keeps, each such `#` cut to its line's end. 3.13 skips the character
+ *  after a backslash; where 3.14.6 strips, it does not, so an escaped quote turns its state. */
+function quoteScan(text, from, to, escapes, out = null) {
+  let quote = "";
+  let start = from;
+  for (let i = from; i < to; i += 1) {
+    const c = text[i];
+    if (c === "\\" && escapes) { i += 1; continue; }
+    if (c === '"' || c === "'") { if (!quote) quote = c; else if (c === quote) quote = ""; continue; }
+    if (c !== "#" || quote) continue;
+    if (!out) return true;
+    if (i > start) out.push([start, i]);
+    while (i < to && text[i] !== "\n" && text[i] !== "\r") i += 1;
+    start = i;
+    i -= 1;
+  }
+  if (out && to > start) out.push([start, to]);
+  return false;
+}
+
+/** The text CPython 3.13 and later keep of each field's expression, as each of their scans
+ *  keeps it; in order, and merged. Nested fields are scanned again within each field around
+ *  them: past a budget in proportion to the program, a field's text is kept whole, its
+ *  comments too, which fails closed. */
+function pythonWritten(text, fields) {
+  let budget = 8 * text.length + 1000000;
+  const out = [];
+  for (const [from, to] of fields) {
+    budget -= 3 * (to - from);
+    if (budget < 0 || !quoteScan(text, from, to, true)) { out.push([from, to]); continue; }
+    quoteScan(text, from, to, true, out);
+    quoteScan(text, from, to, false, out);
+  }
+  return merged(out);
 }
 
 /** The parts of Python's strings read as text with escapes, str or bytes: each body, less an
  *  f-string's fields, whose code is read as code, but with the text of their format specs and,
- *  as 3.12 decodes it, of their `=` debug text. A raw string's body holds no escapes. */
-function pythonLiterals(tokens, bytes) {
+ *  as 3.12 decodes it, of their `=` debug text. A raw string's body holds no escapes; with
+ *  `raw`, its text is given too, for where a string only contains text. */
+function pythonLiterals(tokens, bytes, raw = false) {
   const spans = [];
   for (const t of tokens) {
     if (t.type !== "string" || /[bB]/.test(t.prefix) !== bytes) continue;
-    if (!/[rR]/.test(t.prefix)) {
+    if (raw || !/[rR]/.test(t.prefix)) {
       let at = t.body[0];
       for (const [start, end] of t.fields) { if (start > at) spans.push([at, start]); at = Math.max(at, end); }
       if (t.body[1] > at) spans.push([at, t.body[1]]);
     }
-    spans.push(...t.specs, ...t.debug);
+    append(spans, t.specs);
   }
+  if (!bytes) append(spans, tokens.debug);
   return spans.sort((a, b) => a[0] - b[0]);
 }
 
-/** The text some CPython version keeps as written, though another decodes it: every `=` debug
- *  text, and a raw f-string's specs. In order, and merged where they overlap. */
+/** Adds items to an array one at a time: a spread call fails past about 125,000 of them. */
+function append(into, items) {
+  for (const x of items) into.push(x);
+  return into;
+}
+
+/** The text some CPython version keeps as written, though another decodes it: a raw
+ *  f-string's specs. In order, and merged where they overlap. Debug text as written is read
+ *  as pythonWritten keeps it. */
 function pythonKept(tokens) {
   return merged(tokens.flatMap((t) => (t.type === "string" ? t.kept : [])));
 }
@@ -912,7 +984,7 @@ function readsUncommented(code, opaque) {
     if (env === -1) continue;
     let kept = found.length;
     if (member(run(")", env)) !== -1) kept = found.length;
-    spans.push(...found.slice(0, kept));
+    append(spans, found.slice(0, kept));
   }
   for (let i = code.indexOf("}"); i !== -1; i = code.indexOf("}", i + 1)) {
     found = [];
@@ -921,7 +993,7 @@ function readsUncommented(code, opaque) {
     const at = run("(", k + 1);
     JS_PROCESS_HERE.lastIndex = at;
     const name = JS_PROCESS_HERE.exec(code);
-    if (name && jsValue(name[0]) === "process") spans.push(...found);
+    if (name && jsValue(name[0]) === "process") append(spans, found);
   }
   if (!spans.length) return code;
   // A run's brackets are blanked with its comments: the read patterns take space for them.
@@ -1071,7 +1143,7 @@ function destructured(code, lineAt, literals, regexes, named = () => true, types
   for (const m of envMatches(code, typescript ? TS_ENV_DESTRUCTURING : JS_ENV_DESTRUCTURING, 1, (x) => keep(x, [3, 4, 5]))) {
     b ??= brackets(code, opaque);
     const open = b.open.get(m.index);
-    if (open !== undefined) found.push(...items(code, lineAt, b, opaque, open, m.index));
+    if (open !== undefined) append(found, items(code, lineAt, b, opaque, open, m.index));
     // Text a literal only contains may hold its own quotes, whose brackets pair as text does.
     if (literals !== null && !b.span[m.index]) continue;
     if (!nearest) {
@@ -1082,7 +1154,7 @@ function destructured(code, lineAt, literals, regexes, named = () => true, types
     const from = Math.min(open ?? m.index, nearest[m.index]);
     if (from !== -1) spans.push([from, m.index]);
   }
-  if (spans.length) found.push(...unsureItems(code, lineAt, spans));
+  if (spans.length) append(found, unsureItems(code, lineAt, spans));
   return found;
 }
 
@@ -1228,7 +1300,7 @@ function envIn(code, language, lineAt, literals = null, regexes = null, typescri
         if (name === null || name) push(name, raw, name === null, m.index);
       }
     });
-    env.push(...destructured(view, lineAt, literals, regexes, named, typescript));
+    append(env, destructured(view, lineAt, literals, regexes, named, typescript));
   }
   return env;
 }
@@ -1648,9 +1720,12 @@ function pythonCall(all, first, last) {
   if (all[call]?.type !== "op" || all[call].text !== "(") return -1;
   let opens = 0;
   for (let j = first - 1; all[j]?.type === "op" && all[j].text === "("; j -= 1) {
-    // A field's code starts after its `{`, which is no token: what stands before it is no operand.
+    // A field's code starts after its `{`, which is no token: what stands before it is no
+    // operand. Nor is `match` or `case` where it begins a statement, as a soft keyword.
     const before = all[j - 1];
-    const ends = before?.site === all[j].site && (before.type === "string" || (before.type === "name" && !PY_KEYWORDS.has(before.text.normalize("NFKC")))
+    const soft = before?.type === "name" && /^(?:match|case)$/.test(before.text.normalize("NFKC"))
+      && (j < 2 || all[j - 2].type === "newline" || (all[j - 2].type === "op" && /^[;:]$/.test(all[j - 2].text)));
+    const ends = !soft && before?.site === all[j].site && (before.type === "string" || (before.type === "name" && !PY_KEYWORDS.has(before.text.normalize("NFKC")))
       || (before.type === "op" && /^[)\]}\p{N}]$/u.test(before.text)));
     if (ends) break;
     opens += 1;
@@ -1905,19 +1980,18 @@ export function findReach(source, language, path = "") {
       const joined = new Set();
       const adjacent = adjacentUrls(text, tokens, lineAt, joined);
       const literals = [...strings, ...bytes].sort((a, b) => a[0] - b[0]);
-      // In 3.13 and later a comment of a field nested in debug text stays in that text.
-      const notes = merged(tokens.flatMap((t) => (t.type === "string" ? t.notes : [])));
-      const noted = notes.length ? only(text, notes) : null;
+      // Debug text, and a t-string's interpolations, as 3.13 and later keep them as written.
+      const written = tokens.written.length ? only(text, tokens.written) : null;
       gather(urls, [
         ...urlsIn(code, lineAt, literals, pythonKept(tokens), joined),
-        ...(noted ? urlsIn(noted, lineAt) : []),
+        ...(written ? urlsIn(written, lineAt) : []),
         ...literalUrls(code, strings, PY_ESCAPE, pythonDecode, lineAt, joined),
         ...literalUrls(code, bytes, PY_ESCAPE, pythonBytes, lineAt, joined),
         ...adjacent,
       ], urlKey);
       gather(env, [
-        ...envIn(code, language, lineAt, literals),
-        ...(noted ? envIn(noted, language, lineAt, notes) : []),
+        ...envIn(code, language, lineAt, [...pythonLiterals(tokens, false, true), ...pythonLiterals(tokens, true, true)]),
+        ...(written ? envIn(written, language, lineAt, tokens.written) : []),
         ...literalEnv(code, strings, PY_ESCAPE, pythonDecode, language, lineAt),
         ...literalEnv(code, bytes, PY_ESCAPE, pythonBytes, language, lineAt),
       ], (e) => `${e.at}\0${e.name}`);
