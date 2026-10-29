@@ -335,6 +335,42 @@ to turn the ruleset off, move the tag, and turn it back on.
 
 ## How this repository is built
 
+Each piece was made by one role of the [ADLC](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md),
+and a fence keeps the code writer out of the pieces that judge its work. The spec owner held the
+spec writer and test writer roles.
+
+```mermaid
+flowchart LR
+  subgraph sw["<b>Spec writer</b>, ROLES.md §19<br/>Requirements and Design"]
+    spec["docs/spec.md<br/>SR-01 to SR-23, open questions"]
+    trace["docs/traceability.md<br/>each requirement, its tests, its program"]
+  end
+  subgraph tw["<b>Test writer</b>, ROLES.md §20<br/>Test"]
+    suite["agents/security-reviewer/test/<br/>180 tests and the empty stand-ins"]
+    conf["conformance/<br/>the 4 checks of ROLES.md §34.4"]
+    decl["agents/security-reviewer/*.json, skills/<br/>the package declaration"]
+  end
+  subgraph fence["<b>The fence</b>, ROLES.md §21"]
+    lock["LOCK.json: a fingerprint of 36 files<br/>the handoff tag: where they were locked"]
+    guard["a hook that blocks the code writer's edits<br/>CI on every push: .github/workflows/verify.yml"]
+  end
+  subgraph cw["<b>Code writer</b>, ROLES.md §21<br/>Code, an AI agent"]
+    progs["agents/security-reviewer/scripts/<br/>the 6 programs"]
+    rec["docs/rounds.md: every round<br/>README.md, examples/"]
+  end
+  sw --> tw
+  tw --> fence
+  sw --> fence
+  fence -->|"locked inputs"| cw
+  cw -->|"every push, checked"| fence
+  classDef owner stroke:#0969da,stroke-width:2px
+  classDef agent stroke:#9a6700,stroke-width:2px
+  classDef gate stroke:#1a7f37,stroke-width:2px
+  class sw,tw owner
+  class cw agent
+  class fence gate
+```
+
 | Path | What it is | Who changes it |
 |---|---|---|
 | `docs/spec.md` | The job, as 23 requirements | Spec owner |
