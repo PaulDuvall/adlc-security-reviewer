@@ -23,7 +23,7 @@ tests the suite lacks, and some URL forms the spec does not refuse
 |---|---|---|
 | ✅ | Automated checks on GitHub | Pass on the latest push to `main` |
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
-| ✅ | Tests | 180 of 180 pass. Each one traces to a requirement |
+| ✅ | Tests | 180 of 180 pass. Each one traces to a requirement in [docs/traceability.md](docs/traceability.md) |
 | ✅ | Role checks | 4 of 4 pass: the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires, run by a check written here |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 36 files, including the spec and the tests. A push that changes any of them turns the checks on GitHub red, unless it also rewrites the checks, which then shows in its diff |
@@ -106,7 +106,7 @@ The lifecycle does not settle three points yet.
 | Gap | What to do for now |
 |---|---|
 | The [stages page](https://agenticdevelopment.ai/stages.html) lists the two declaration files as outputs of Package, stage 09. The reviewer reads them, so it cannot run without them | Write both files before the review. The package maker can start from them |
-| [ROLES.md §34.3](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#34-role-the-security-reviewer) calls the statement the record, and names no one who reads it next | Keep the statement with the install decision, and give it to whoever deploys the agent |
+| [ROLES.md §34.3](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#343-the-record) calls the statement the record, and names no one who reads it next | Keep the statement with the install decision, and give it to whoever deploys the agent |
 | Running on a fleet host needs a host contract AgentMesh has not published ([spec](docs/spec.md#out-of-scope-for-030)) | Run it locally, as below |
 
 ### What you need
@@ -231,7 +231,7 @@ does, even one used only as a name, such as a JSON Schema address
 | Rule | Cause | Usual fix |
 |---|---|---|
 | `bad-request` | The request is not valid JSON, lacks `"review": "v1"`, or names no package | Match the request above |
-| `unreadable` | The folder is missing, a declaration file is not a JSON object, an `mcp.json` cannot be read, a shipped file is a link to a file outside the package, or, on Node 26, a TypeScript program needs transforming | Fix what it names. Ship the file a link points to in place of the link |
+| `unreadable` | The folder is missing, a file in it cannot be read (such as a link whose target is missing), a declaration file is not a JSON object, an `mcp.json` cannot be read, a shipped file is a link to a file outside the package, or, on Node 26, a TypeScript program needs transforming. Also the answer when the reviewer itself fails; it then writes the error's kind and stack to standard error | Fix what it names. Ship the file a link points to in place of the link. Report a failure of the reviewer itself in an issue |
 | `systems-mismatch` | The two declaration files name different systems | Name each system in both |
 | `no-reason` | A system has a missing or blank `needs` | Say why the agent needs it |
 | `undeclared-reach` | A program contains a web address or reads an unbound credential-like variable, or an MCP server is not a declared system | Declare the system, bind its credential and address, and read both from the environment |
@@ -327,7 +327,7 @@ to turn the ruleset off, move the tag, and turn it back on.
 |---|---|---|
 | 104 tests the suite lacks: 70 gaps, and 34 cases from bugs already fixed | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#test-ideas-from-round-17) |
 | The protections on GitHub. `main` cannot be deleted or force-pushed, and the `handoff` tag cannot be moved or deleted, by anyone, while their rulesets are on. No ruleset asks for a review or a green check before a push to `main`; the spec owner is the only person with write access | Spec owner: add the review ruleset in `tools/handoff.sh` if anyone else gets write access | `tools/handoff.sh` |
-| 11 small changes to locked files: a second way to report a vulnerability, the CI step that decides which stage a commit is in, version and runtime fields, credit notices in the spec, and others | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#for-the-spec-owner-from-round-23) |
+| 10 small changes to locked files: a second way to report a vulnerability, the CI step that decides which stage a commit is in, version and runtime fields, credit notices in the spec, and others. Also, from rounds 24 and 25: a package size limit, tests for the fixes of rounds 17 to 25, Node 26 in CI, and a stricter third conformance case | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#for-the-spec-owner-from-round-23), rounds 24 and 25 |
 | 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Need input from AgentMesh: 4 | [docs/spec.md](docs/spec.md#open-questions) |
 | 18 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
 | URL forms that pass, though Node's URL parser sends them to a host: some because SR-08 reads them so, such as `https:// x@evil.example/`, and some by the code's own rule that a host it finds past a bracket or quotation mark holds a letter or a digit, such as `` https://«`.evil.example/ `` | Spec owner | [docs/rounds.md](docs/rounds.md#rounds), rounds 19 and 20 |
@@ -397,8 +397,8 @@ npm run verify
 | `npm run docs` | Runs the reviewer commands in this README and `examples/README.md` as written, and checks their answers |
 | `npm run verify` | Runs all five |
 
-Node 22.13 or later and git. No dependencies. CI runs Node 22; round 23 ran every check on
-Node 26 too.
+Node 22.13 or later and git. No dependencies. CI runs Node 22; rounds 23 to 25 ran every check
+on Node 26 too.
 
 ## Contributing
 
