@@ -33,7 +33,7 @@ export function packageDigest(files) {
 const within = (root, target) => target === root || target.startsWith(root.endsWith(sep) ? root : root + sep);
 
 /** An error that refuses the package as unreadable, with a fixed reason (SR-05, SR-01). */
-export function unreadable(why) {
+function unreadable(why) {
   const e = new Error(why);
   e.code = "unreadable";
   return e;

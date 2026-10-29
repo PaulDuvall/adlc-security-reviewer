@@ -279,7 +279,7 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>36 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 3,257 lines<br/>Node built-ins only<br/>24 rounds"]
+  cod["<b>Code</b> ✅<br/>6 programs, 3,260 lines<br/>Node built-ins only<br/>24 rounds"]
   nxt["<b>Next</b><br/>104 missing tests added<br/>29 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px

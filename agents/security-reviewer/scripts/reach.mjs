@@ -2,7 +2,6 @@
 // whether it starts other processes (SR-08, SR-09, SR-17). Comments are blanked first, with
 // their line breaks kept, so every finding keeps its line and no comment counts.
 import { stripTypeScriptTypes } from "node:module";
-import { unreadable } from "./read-package.mjs";
 
 const LANGUAGES = {
   ".mjs": "javascript", ".js": "javascript", ".cjs": "javascript", ".ts": "javascript", ".mts": "javascript", ".cts": "javascript",
@@ -2188,7 +2187,11 @@ function typeScriptRun(text) {
     out = stripTypeScriptTypes(text, { mode: "transform", sourceMap: true });
   } catch (e) {
     if (e?.code === "ERR_INVALID_ARG_VALUE") {
-      throw unreadable("a TypeScript program needs Node to transform it, as for an enum, and this Node cannot: review it on Node 22.13 to 25");
+      // Built here, not imported from read-package.mjs, so that each program still loads with
+      // any other removed, and the removal check counts every test by name.
+      const gone = new Error("a TypeScript program needs Node to transform it, as for an enum, and this Node cannot: review it on Node 22.13 to 25");
+      gone.code = "unreadable";
+      throw gone;
     }
     if (!readable(e)) throw e;
     return null;
