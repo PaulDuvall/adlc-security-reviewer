@@ -279,7 +279,7 @@ flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>36 files locked"]
-  cod["<b>Code</b> ✅<br/>6 programs, 3,260 lines<br/>Node built-ins only<br/>24 rounds"]
+  cod["<b>Code</b> ✅<br/>6 programs, 3,310 lines<br/>Node built-ins only<br/>25 rounds"]
   nxt["<b>Next</b><br/>104 missing tests added<br/>29 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
@@ -288,7 +288,7 @@ flowchart LR
   class nxt next
 ```
 
-The Code stage ran in 24 rounds. Round 1 wrote the code. The rounds after it attacked the code
+The Code stage ran in 25 rounds. Round 1 wrote the code. The rounds after it attacked the code
 and fixed what broke: reviews with a skeptic re-checking each finding, bugs planted to test the
 tests, and comparisons with CPython, V8 and Node on generated programs. [docs/rounds.md](docs/rounds.md)
 records each round: what was tried, what failed and what changed.

@@ -69,6 +69,20 @@ function shippedFiles(dir) {
   return out.sort((a, b) => byteOrder(a.path, b.path));
 }
 
+/** The file system's errors, each the package's fault: a missing file, a link whose target
+ *  is gone, a loop of links, a read the permission model or the system refuses. */
+const FILE_ERRORS = new Set(["ENOENT", "ENOTDIR", "EISDIR", "ELOOP", "EACCES", "EPERM", "ENAMETOOLONG", "ERR_ACCESS_DENIED"]);
+
+/** The result of a read. A file system error refuses the package as unreadable, with a fixed
+ *  reason that names no path (SR-13); any other error goes on, so a fault in this reviewer is
+ *  reported as one, not blamed on the package (SR-01). */
+function fileRead(read, why) {
+  try { return read(); } catch (e) {
+    if (FILE_ERRORS.has(e?.code)) throw unreadable(why);
+    throw e;
+  }
+}
+
 /** The first of the names present is the one read: the current name over the former. */
 function readDeclaration(files, names, what) {
   const name = names.find((n) => files.some((f) => f.path === n));
@@ -94,14 +108,9 @@ const text = (v) => (typeof v === "string" && v.trim() ? v : null);
 
 /** Read a package directory. Throws an error with code "unreadable" when it cannot. */
 export function readPackage(dir) {
-  let files;
-  try {
-    if (!statSync(dir).isDirectory()) throw new Error("not a directory");
-    files = shippedFiles(dir);
-  } catch (e) {
-    if (e.code === "unreadable") throw e;
-    throw unreadable("the package directory is missing or cannot be read");
-  }
+  const MISSING = "the package directory is missing or cannot be read";
+  if (!fileRead(() => statSync(dir).isDirectory(), MISSING)) throw unreadable(MISSING);
+  const files = fileRead(() => shippedFiles(dir), "a file in the package cannot be read, such as a link whose target is missing");
   const descriptor = readDeclaration(files, DESCRIPTOR, "descriptor");
   const requirements = readDeclaration(files, REQUIREMENTS, "runtime requirements");
   const plugin = readPlugin(files);
