@@ -18,7 +18,8 @@ Run any of them from the root of this repo:
 node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs < examples/requests/review-faults.json
 ```
 
-Each request names its agent relative to the repo root.
+Each request names its agent relative to the repo root. The answers are the same on Node 22 and
+Node 26, since no sample uses TypeScript.
 
 `answers/` holds the answer the reviewer gives to each request, under the same file name. The
 suite runs every request in `requests/` and fails if an answer differs from its recorded one,

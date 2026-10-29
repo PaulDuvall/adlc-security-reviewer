@@ -14,7 +14,7 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 
 ## Where it stands
 
-Status on 28 October 2026: complete against spec 0.3.0. Its 23 requirements, 180 tests and 4
+Status on 29 October 2026: complete against spec 0.3.0. Its 23 requirements, 180 tests and 4
 role checks all pass, on Node 22 and on Node 26. Open: 29 decisions the spec leaves open, 104
 tests the suite lacks, and some URL forms the spec does not refuse
 ([What is still open](#what-is-still-open)).
@@ -41,7 +41,7 @@ flowchart LR
   lim["<b>The owner's limits</b><br/>a spending limit, here $5.00 a day"]
   rev["<b>Security reviewer</b><br/>reads every shipped file<br/>checks what the code reaches<br/>against what the package declares<br/><i>no model, no network, changes nothing</i>"]
   pass["<b>Passed: a security statement</b><br/>Reaches ticket-store, read access<br/>Why: to read the tickets it summarizes<br/>Spends at most $5.00 a day<br/>Never writes to the ticket store"]
-  ref["<b>Refused: every problem named</b><br/>Reaches api.billing.example.com, line 9<br/>Reads the secret BILLING_API_KEY,<br/>never declared, line 10<br/>No reason given for ticket-store<br/>No spending limit set by the owner"]
+  ref["<b>Refused: every problem named</b><br/>Reaches api.billing.example.com, line 11<br/>Reads the secret BILLING_API_KEY,<br/>never declared, line 12<br/>No reason given for ticket-store<br/>No spending limit set by the owner"]
   dec["<b>Declined: asked to hand over a credential</b><br/>It only reviews. It never grants access,<br/>hands out credentials or installs anything"]
   pkg --> rev
   lim --> rev
@@ -113,7 +113,7 @@ The lifecycle does not settle three points yet.
 
 | Need | Detail |
 |---|---|
-| Node 22.13 or later, and a clone of this repo | No dependencies, no install step. Node 26 cannot transform TypeScript, so there a package with a TypeScript `enum` or `namespace` is refused `unreadable`: review it on Node 22.13 to 25 |
+| Node 22.13 or later, and a clone of this repo | No dependencies, no install step. Node 26 cannot transform TypeScript, so there a package with TypeScript that needs it, such as an `enum`, a `namespace` or a constructor parameter property, is refused `unreadable`: review it on Node 22.13 to 25 |
 | Your agent's folder | `agent-descriptor.json`, `agent-runtime-requirements.json`, every file you ship, and optionally `plugin.json` for the name and version |
 | The owner's spending limit | In millionths of the currency: `5000000` is $5.00 |
 | The owner's number for each ceiling | Only where your runtime requirements list `ceilings` |
@@ -324,9 +324,9 @@ only the spec owner's GitHub account may move the `handoff` tag.
 
 | Item | Owner | Where |
 |---|---|---|
-| 104 tests round 17 found missing: 70 suite gaps, and 34 planted bugs that showed the 17 bugs it fixed | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#test-ideas-from-round-17) |
-| The protections on GitHub. Today `main` cannot be deleted or force-pushed, by anyone, and only the spec owner's account may move or delete the `handoff` tag. No ruleset asks for a review or a green check before a push to `main`: the one round 15 set was removed, and the spec owner is the only person with write access | Spec owner: restore that ruleset from `tools/handoff.sh` if anyone else gets write access | [docs/rounds.md](docs/rounds.md), round 23 |
-| Changes to locked files that round 23's audit found: a second way to report a vulnerability, the CI step that decides which stage a commit is in, version and runtime fields, credit notices in the spec, and others | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#for-the-spec-owner-from-round-23) |
+| 104 tests the suite lacks: 70 gaps, and 34 cases from bugs already fixed | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#test-ideas-from-round-17) |
+| The protections on GitHub. `main` cannot be deleted or force-pushed, by anyone, and only the spec owner's account may move or delete the `handoff` tag. No ruleset asks for a review or a green check before a push to `main`; the spec owner is the only person with write access | Spec owner: add the review ruleset in `tools/handoff.sh` if anyone else gets write access | `tools/handoff.sh` |
+| 11 small changes to locked files: a second way to report a vulnerability, the CI step that decides which stage a commit is in, version and runtime fields, credit notices in the spec, and others | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#for-the-spec-owner-from-round-23) |
 | 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Need input from AgentMesh: 4 | [docs/spec.md](docs/spec.md#open-questions) |
 | 18 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
 | URL forms that pass, though Node's URL parser sends them to a host: some because SR-08 reads them so, such as `https:// x@evil.example/`, and some by the code's own rule that a host it finds past a bracket or quotation mark holds a letter or a digit, such as `` https://«`.evil.example/ `` | Spec owner | [docs/rounds.md](docs/rounds.md#rounds), rounds 19 and 20 |
