@@ -317,15 +317,16 @@ flowchart LR
   class ci gate
 ```
 
-Only the spec owner changes the spec or the tests, each time in its own "Re-lock" commit, and
-only the spec owner's GitHub account may move the `handoff` tag.
+Only the spec owner changes the spec or the tests, each time in its own "Re-lock" commit. No
+one can move the `handoff` tag while its ruleset is on, so a re-lock needs a repository admin
+to turn the ruleset off, move the tag, and turn it back on.
 
 ## What is still open
 
 | Item | Owner | Where |
 |---|---|---|
 | 104 tests the suite lacks: 70 gaps, and 34 cases from bugs already fixed | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#test-ideas-from-round-17) |
-| The protections on GitHub. `main` cannot be deleted or force-pushed, by anyone, and only the spec owner's account may move or delete the `handoff` tag. No ruleset asks for a review or a green check before a push to `main`; the spec owner is the only person with write access | Spec owner: add the review ruleset in `tools/handoff.sh` if anyone else gets write access | `tools/handoff.sh` |
+| The protections on GitHub. `main` cannot be deleted or force-pushed, and the `handoff` tag cannot be moved or deleted, by anyone, while their rulesets are on. No ruleset asks for a review or a green check before a push to `main`; the spec owner is the only person with write access | Spec owner: add the review ruleset in `tools/handoff.sh` if anyone else gets write access | `tools/handoff.sh` |
 | 11 small changes to locked files: a second way to report a vulnerability, the CI step that decides which stage a commit is in, version and runtime fields, credit notices in the spec, and others | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#for-the-spec-owner-from-round-23) |
 | 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Need input from AgentMesh: 4 | [docs/spec.md](docs/spec.md#open-questions) |
 | 18 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
