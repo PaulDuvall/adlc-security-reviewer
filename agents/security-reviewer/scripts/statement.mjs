@@ -1,9 +1,5 @@
 // Write the security statement for a package that passed (SR-16 to SR-18).
-import { acceptedKnowingly, leavesFor, limitOf, notChecked, ownerNumber } from "./rules.mjs";
-
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-const list = (v) => (Array.isArray(v) ? v.filter(isObject) : []);
-const named = (systems) => list(systems).filter((s) => typeof s.name === "string");
+import { acceptedKnowingly, leavesFor, limitOf, list, named, notChecked, ownerNumber } from "./rules.mjs";
 
 /** The package as every answer about a readable one names it. */
 export const packageOf = (pkg) => ({ name: pkg.name, version: pkg.version, digest: pkg.digest });

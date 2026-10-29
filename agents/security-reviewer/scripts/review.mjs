@@ -94,16 +94,27 @@ export function answer(request, options = {}) {
   // An error the review raised as unreadable carries a fixed reason; any other is not named,
   // since it may come from a program or from a declaration.
   try { return reviewPackage(pkg, r.owner); } catch (e) {
-    const why = e?.code === "unreadable" ? e.message : "the reviewer could not finish reading the package";
-    return withheld(refused([{ rule: "unreadable", why }], pkg), []);
+    if (e?.code === "unreadable") return withheld(refused([{ rule: "unreadable", why: e.message }], pkg), []);
+    report(e);
+    return withheld(refused([{ rule: "unreadable", why: "the reviewer could not finish reading the package" }], pkg), []);
   }
+}
+
+/** Writes an unexpected error's kind and stack frames to standard error, for whoever runs the
+ *  reviewer. Its message is left out, since it may quote the package and no output may repeat
+ *  a credential (SR-13). Standard output still carries the one answer (SR-01). */
+function report(e) {
+  const kind = typeof e?.name === "string" && /^\w+$/.test(e.name) ? e.name : "error";
+  const frames = String(e?.stack ?? "").split("\n").filter((l) => /^\s+at /.test(l));
+  process.stderr.write(`security-reviewer: internal ${kind}\n${frames.join("\n")}\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let reply;
   // Standard input is read as bytes: a read that fails is one the reviewer cannot finish (SR-01),
   // not an empty request.
-  try { reply = answer(readFileSync(0)); } catch {
+  try { reply = answer(readFileSync(0)); } catch (e) {
+    report(e);
     reply = refused([{ rule: "unreadable", why: "the reviewer could not finish its answer" }]);
   }
   process.stdout.write(`${JSON.stringify(reply)}\n`);

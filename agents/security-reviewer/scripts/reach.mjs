@@ -2,6 +2,7 @@
 // whether it starts other processes (SR-08, SR-09, SR-17). Comments are blanked first, with
 // their line breaks kept, so every finding keeps its line and no comment counts.
 import { stripTypeScriptTypes } from "node:module";
+import { unreadable } from "./read-package.mjs";
 
 const LANGUAGES = {
   ".mjs": "javascript", ".js": "javascript", ".cjs": "javascript", ".ts": "javascript", ".mts": "javascript", ".cts": "javascript",
@@ -19,6 +20,17 @@ export function languageOf(path) {
 /** True when at least one `_`-separated part of the name is a credential word. */
 export function isCredentialName(name) {
   return name.split("_").some((part) => CREDENTIAL_PARTS.has(part.toUpperCase()));
+}
+
+/** The last index of a sorted array whose value is at most x, or 0 where none is. */
+function lastAtOrBelow(sorted, x) {
+  let lo = 0;
+  let hi = sorted.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (sorted[mid] <= x) lo = mid; else hi = mid - 1;
+  }
+  return lo;
 }
 
 // Blanking comments
@@ -134,9 +146,9 @@ function readJavaScript(text, prefix, goal) {
   // with it; "typed" after its type, which `|`, `&`, `.` or `<` may go on with too, but not
   // `[`: no line end may come before an array type's.
   let resumes = false;
-  let brackets = 0; // how many `[` are open
+  let openBrackets = 0; // how many `[` are open
   let substitutions = 0; // how many template substitutions are open
-  const level = () => parens.length + braces.length + brackets + substitutions;
+  const level = () => parens.length + braces.length + openBrackets + substitutions;
   // The depth an `import` or `export` began at, while a `from` there may begin its from clause;
   // whether no token has followed it yet; and whether its `{…}` has closed, so that only `from` may follow.
   let clause = null;
@@ -429,8 +441,8 @@ function readJavaScript(text, prefix, goal) {
       lineStart = false;
       lastWord = null;
       endsAtLine = false;
-      if (c === "[") brackets += 1;
-      else if (c === "]" && brackets) brackets -= 1;
+      if (c === "[") openBrackets += 1;
+      else if (c === "]" && openBrackets) openBrackets -= 1;
       const kind = c === ")" ? parens.pop() : null;
       // A `,` at a declaration's own depth begins another of its names; a `;` there ends it, and
       // so does any token at a lower depth.
@@ -882,9 +894,7 @@ function bodyOf(text, span) {
   let body = "";
   for (const [from, to] of pieces) { begins.push(body.length); body += text.slice(from, to); }
   const place = (k) => {
-    let j = 0;
-    let hi = begins.length - 1;
-    while (j < hi) { const mid = (j + hi + 1) >> 1; if (begins[mid] <= k) j = mid; else hi = mid - 1; }
+    const j = lastAtOrBelow(begins, k);
     return pieces[j][0] + k - begins[j];
   };
   return { body, place, end: pieces.at(-1)[1] };
@@ -940,15 +950,7 @@ function blankPythonComments(text, tokens = pythonTokens(text)) {
 function lineFinder(text) {
   const starts = [0];
   for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) starts.push(i + 1);
-  return (offset) => {
-    let lo = 0;
-    let hi = starts.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (starts[mid] <= offset) lo = mid; else hi = mid - 1;
-    }
-    return lo + 1;
-  };
+  return (offset) => lastAtOrBelow(starts, offset) + 1;
 }
 
 // The scheme, then an authority that stops at anything computed (`$`, `{`) or quoted. No word
@@ -1201,9 +1203,7 @@ function literalKeys(literals) {
   const ends = new Map(literals);
   const starts = literals.map(([start]) => start);
   const inside = (from, to) => {
-    let lo = 0;
-    let hi = starts.length - 1;
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= from) lo = mid; else hi = mid - 1; }
+    const lo = lastAtOrBelow(starts, from);
     return starts.length > 0 && starts[lo] <= from && literals[lo][1] >= to;
   };
   return (m, groups) => groups.every((g) => {
@@ -1224,9 +1224,7 @@ function ownName(code, literals) {
   if (!literals) return () => true;
   const starts = literals.map(([start]) => start);
   const inLiteral = (at) => {
-    let lo = 0;
-    let hi = starts.length - 1;
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= at) lo = mid; else hi = mid - 1; }
+    const lo = lastAtOrBelow(starts, at);
     return starts.length > 0 && starts[lo] <= at && at < literals[lo][1];
   };
   return (m) => {
@@ -1946,9 +1944,7 @@ function escapeMap(body, escapes, decode) {
     last = m.index + m[0].length;
   }
   return (index) => {
-    let lo = 0;
-    let hi = at.length - 1;
-    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (at[mid] <= index) lo = mid; else hi = mid - 1; }
+    const lo = lastAtOrBelow(at, index);
     // An even entry starts plain text; an odd one starts an escape's piece, placed at the escape.
     return lo % 2 === 0 ? written[lo] + index - at[lo] : written[lo];
   };
@@ -2137,10 +2133,7 @@ function readJoined(text, pieces, lineAt, urls, env) {
   for (const x of pieces) { begins.push(length); length += x.value.length; }
   // The piece the value's character at an index comes from, and where it was written.
   const pieceAt = (index) => {
-    let k = 0;
-    let hi = begins.length - 1;
-    while (k < hi) { const mid = (k + hi + 1) >> 1; if (begins[mid] <= index) k = mid; else hi = mid - 1; }
-    return k;
+    return lastAtOrBelow(begins, index);
   };
   const writtenAt = (k, index) => pieces[k].place(index - begins[k]);
   for (const m of value.matchAll(URL_IN_CODE)) {
@@ -2195,9 +2188,7 @@ function typeScriptRun(text) {
     out = stripTypeScriptTypes(text, { mode: "transform", sourceMap: true });
   } catch (e) {
     if (e?.code === "ERR_INVALID_ARG_VALUE") {
-      const gone = new Error("a TypeScript program needs Node to transform it, as for an enum, and this Node cannot: review it on Node 22.13 to 25");
-      gone.code = "unreadable";
-      throw gone;
+      throw unreadable("a TypeScript program needs Node to transform it, as for an enum, and this Node cannot: review it on Node 22.13 to 25");
     }
     if (!readable(e)) throw e;
     return null;
@@ -2211,9 +2202,7 @@ function typeScriptRun(text) {
   // The offset in the text that the code at an offset came from, by the map's segment at or
   // before it on its line, or the last on a line before.
   const place = (offset) => {
-    let line = 0;
-    let hi = starts.length - 1;
-    while (line < hi) { const mid = (line + hi + 1) >> 1; if (starts[mid] <= offset) line = mid; else hi = mid - 1; }
+    const line = lastAtOrBelow(starts, offset);
     const column = offset - starts[line];
     for (let l = line; l >= 0; l -= 1) {
       const segments = lines[l] ?? [];

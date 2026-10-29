@@ -8,8 +8,11 @@ import { ships } from "./read-package.mjs";
 import { secretsIn } from "./secrets.mjs";
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-const list = (v) => (Array.isArray(v) ? v.filter(isObject) : []);
-const blank = (v) => typeof v !== "string" || !v.trim();
+/** The objects in an array, or none where it is not one. */
+export const list = (v) => (Array.isArray(v) ? v.filter(isObject) : []);
+/** The entries of a `systems[]` with a string name: the spec's Terms, System. */
+export const named = (systems) => list(systems).filter((s) => typeof s.name === "string");
+const isBlank = (v) => typeof v !== "string" || !v.trim();
 
 /** A refusal, its members always in the same order. */
 function refuse(rule, why, { system, file, line } = {}) {
@@ -23,8 +26,8 @@ function refuse(rule, why, { system, file, line } = {}) {
 
 // What the package declares
 
-const descriptorSystems = (pkg) => list(pkg.descriptor.systems).filter((s) => typeof s.name === "string");
-const requiredSystems = (pkg) => list(pkg.requirements.systems).filter((s) => typeof s.name === "string");
+const descriptorSystems = (pkg) => named(pkg.descriptor.systems);
+const requiredSystems = (pkg) => named(pkg.requirements.systems);
 const ceilings = (pkg) => list(pkg.requirements.ceilings);
 
 /** Every environment variable the runtime requirements bind, as a credential or a setting. */
@@ -99,7 +102,7 @@ function systemsMismatch(pkg) {
 }
 
 function noReason(pkg) {
-  return descriptorSystems(pkg).filter((s) => blank(s.needs)).map((s) => refuse("no-reason",
+  return descriptorSystems(pkg).filter((s) => isBlank(s.needs)).map((s) => refuse("no-reason",
     `the descriptor records no reason (needs) for reaching ${s.name}`, { system: s.name }));
 }
 
@@ -128,7 +131,7 @@ function ceilingMissing(pkg) {
   const spending = requiredSystems(pkg).filter((s) => Object.hasOwn(s, "spends"));
   // The scripts reach a credential-bearing system themselves, so the platform never sees
   // what they spend there (Common Agent Specification §12.4 item 4).
-  const credentialed = new Set(requiredSystems(pkg).filter((s) => !blank(s.credential)).map((s) => s.name));
+  const credentialed = new Set(requiredSystems(pkg).filter((s) => !isBlank(s.credential)).map((s) => s.name));
   return [
     ...spending.filter((s) => !capped.has(s.name)).map((s) => refuse("ceiling-missing",
       `${s.name} spends, and the runtime requirements set no ceiling on it`, { system: s.name })),
@@ -159,7 +162,7 @@ const lockfilePath = (entry) => (typeof entry.lockfile === "string" && entry.loc
 function unpinnedEntries(bytes) {
   const lock = JSON.parse(bytes.toString("utf8"));
   const packages = isObject(lock) && isObject(lock.packages) ? lock.packages : {};
-  return Object.keys(packages).filter((k) => k !== "" && (!isObject(packages[k]) || blank(packages[k].integrity)));
+  return Object.keys(packages).filter((k) => k !== "" && (!isObject(packages[k]) || isBlank(packages[k].integrity)));
 }
 
 function dependencyProblem(pkg, entry, path) {
