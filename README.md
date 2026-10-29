@@ -346,16 +346,16 @@ flowchart LR
     trace["docs/traceability.md<br/>each requirement, its tests, its program"]
   end
   subgraph tw["<b>Test writer</b>, ROLES.md §20<br/>Test"]
-    suite["agents/security-reviewer/test/<br/>180 tests and the empty stand-ins"]
+    suite["180 tests and<br/>the empty stand-ins<br/>in test/"]
     conf["conformance/<br/>the 4 checks of ROLES.md §34.4"]
-    decl["agents/security-reviewer/*.json, skills/<br/>the package declaration"]
+    decl["the package declaration<br/>plugin.json, descriptor,<br/>requirements, skills/"]
   end
   subgraph fence["<b>The fence</b>, ROLES.md §21"]
     lock["LOCK.json: a fingerprint of 36 files<br/>the handoff tag: where they were locked"]
     guard["a hook that blocks the code writer's edits<br/>CI on every push: .github/workflows/verify.yml"]
   end
-  subgraph cw["<b>Code writer</b>, ROLES.md §21<br/>Code, an AI agent"]
-    progs["agents/security-reviewer/scripts/<br/>the 6 programs"]
+  subgraph cw["<b>Code writer</b>, ROLES.md §21<br/>Code"]
+    progs["the 6 programs<br/>in scripts/"]
     rec["docs/rounds.md: every round<br/>README.md, examples/"]
   end
   sw --> tw
