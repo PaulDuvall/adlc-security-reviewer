@@ -5,7 +5,7 @@
   "description": "Reads an Agent Package and the spending limit its owner set, before the agent is installed. Hands back a statement of what the agent may reach and why, what it may spend, what it must never do, and what was accepted knowingly, or a refusal naming everything that stopped it.",
   "license": "MIT",
   "author": {
-    "name": "Redacted Ventures LLC"
+    "name": "Paul Duvall"
   },
   "keywords": [
     "role-security-reviewer",

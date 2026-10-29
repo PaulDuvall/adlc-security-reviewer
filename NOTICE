@@ -1,12 +1,8 @@
 adlc-security-reviewer
-Copyright (c) 2026 Redacted Ventures LLC
+Copyright (c) 2026 Paul Duvall
 
 This project is licensed under the MIT License (LICENSE), except for the third-party
 material below, which keeps its own license.
-
-This is an independent implementation by Redacted Ventures LLC. It is not made, reviewed or
-endorsed by AgentMesh, Inc., by Jeff Schneider, or by the editors of the Agent Development
-Lifecycle or the Common Agent Standards.
 
 1. Credential patterns
 
