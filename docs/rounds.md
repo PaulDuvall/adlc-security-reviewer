@@ -54,6 +54,7 @@ without them. A reopen applies them, re-locks and moves the `handoff` tag.
 | L9 | `.gitignore` | Add `*.pem`, `*.key`, `*.p12`, `*.pfx`, `.npmrc` | Keeps a local credential file out of a commit |
 | L10 | The tests, `docs/traceability.md` | A test that a shipped link to a file outside the package is refused `unreadable` | Settles U5, which round 23 changed |
 | L11 | `.github/ISSUE_TEMPLATE/config.yml`, new | A contact link to the private vulnerability form | Sends a reporter to the private route before an issue |
+| L12 | `tools/docs-check.mjs`, new; `package.json`, `.github/workflows/verify.yml`, `CLAUDE.md` | Done: `npm run docs` runs the READMEs' reviewer commands through bash as written, and checks their answers and the answer the README shows; CI runs it in the Code stage | Only the commands' outcomes were tested, not the commands as written |
 
 Settings on GitHub, for the owner: drop "Reference implementation" from the repository's
 description; once the repository is public, turn on private vulnerability reporting and push

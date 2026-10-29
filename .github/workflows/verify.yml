@@ -68,5 +68,9 @@ jobs:
         if: steps.stage.outputs.stage == 'code'
         run: node conformance/security-reviewer-check.mjs --cmd "node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs"
 
+      - name: "Code stage: the documented commands work"
+        if: steps.stage.outputs.stage == 'code'
+        run: node tools/docs-check.mjs
+
       - name: "Stage check: no test passes against the empty stand-ins, and each program removed is noticed"
         run: node tools/removal-check.mjs

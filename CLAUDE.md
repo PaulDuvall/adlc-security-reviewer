@@ -48,17 +48,18 @@ report it in `docs/rounds.md`. Never resolve it yourself.
 | `npm run conformance` | the §34.4 behavioral cases |
 | `npm run removal` | suite fails against stand-ins; notices each program removed |
 | `npm run readme` | the README's figures match the repository |
-| `npm run verify` | all four |
+| `npm run docs` | the READMEs' reviewer commands, run as written |
+| `npm run verify` | all five |
 
 ## Verifying your work
 
 Run `npm run verify` before reporting any task done, and paste its output. Healthy output shows
 `lock holds: N files unchanged`, `# fail 0`, `4 of 4 cases pass`,
 `pass  with the programs: N of N traced tests pass, by name`,
-`pass  against empty stand-ins: 0 of N tests pass (must be 0, with all N traced tests run)`, and
-`README current: …`.
+`pass  against empty stand-ins: 0 of N tests pass (must be 0, with all N traced tests run)`,
+`README current: …`, and `documented commands work: …`.
 
 ## Done when
 
-All four commands exit 0, no locked file changed, `README.md` is current, and `docs/rounds.md`
+All five commands exit 0, no locked file changed, `README.md` is current, and `docs/rounds.md`
 records every round: what failed, what changed, and anything the statement did not settle.

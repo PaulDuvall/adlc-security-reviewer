@@ -26,7 +26,7 @@ tests the suite lacks, and some URL forms the spec does not refuse
 | ✅ | Tests | 180 of 180 pass. Each one traces to a requirement |
 | ✅ | Role checks | 4 of 4 pass: the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires, run by a check written here |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
-| ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 35 files, including the spec and the tests. A push that changes any of them turns the checks on GitHub red, unless it also rewrites the checks, which then shows in its diff |
+| ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 36 files, including the spec and the tests. A push that changes any of them turns the checks on GitHub red, unless it also rewrites the checks, which then shows in its diff |
 | ✅ | Planted-bug check | The tests catch 91.8% of 3,557 small bugs planted in copies of the code, against the usual target of 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Last measured on round 13's code, with tools kept outside this repository |
 | 🟡 | Open decisions | [11 questions the spec leaves open](docs/spec.md#open-questions), and [18 points where the spec is silent and the code made its own choice](docs/rounds.md#points-the-statement-does-not-settle) |
 
@@ -278,7 +278,7 @@ four are done.
 flowchart LR
   req["<b>Requirements</b> ✅<br/>spec 0.3.0<br/>23 requirements"]
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
-  tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>35 files locked"]
+  tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>36 files locked"]
   cod["<b>Code</b> ✅<br/>6 programs, 3,257 lines<br/>Node built-ins only<br/>24 rounds"]
   nxt["<b>Next</b><br/>104 missing tests added<br/>29 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
@@ -303,9 +303,9 @@ not refuse the push itself: the red checks and the diff show it.
 ```mermaid
 flowchart LR
   so["<b>Spec owner</b><br/>writes the spec and the tests"]
-  lock["<b>The lock</b><br/>LOCK.json: a fingerprint of 35 files<br/>a git tag, handoff, marks where they were locked"]
+  lock["<b>The lock</b><br/>LOCK.json: a fingerprint of 36 files<br/>a git tag, handoff, marks where they were locked"]
   cw["<b>Code writer, an AI agent</b><br/>may change only the 6 programs,<br/>the round record, this README<br/>and the examples"]
-  ci["<b>Checks on GitHub, on every push to main</b><br/>no credential in the history<br/>no locked file changed<br/>180 tests pass, 4 role checks pass<br/>emptied programs fail every test<br/>the README's figures are current"]
+  ci["<b>Checks on GitHub, on every push to main</b><br/>no credential in the history<br/>no locked file changed<br/>180 tests pass, 4 role checks pass<br/>emptied programs fail every test<br/>the README's figures are current<br/>the documented commands work"]
   so -->|"changes the spec or tests,<br/>then locks them again"| lock
   lock --> ci
   cw -->|"push"| ci
@@ -358,7 +358,8 @@ npm run verify
 | `npm run conformance` | Runs the 4 role checks |
 | `npm run removal` | Checks the tests fail when the 6 programs are emptied, and when any one is deleted |
 | `npm run readme` | Checks the README's figures against the repository: spec version, tests, rounds, program lines, locked files |
-| `npm run verify` | Runs all four |
+| `npm run docs` | Runs the reviewer commands in this README and `examples/README.md` as written, and checks their answers |
+| `npm run verify` | Runs all five |
 
 Node 22.13 or later and git. No dependencies. CI runs Node 22; round 23 ran every check on
 Node 26 too.

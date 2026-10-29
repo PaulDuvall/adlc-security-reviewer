@@ -29,3 +29,6 @@ its answers again from the root of this repo:
 ```bash
 for r in examples/requests/*.json; do node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs < "$r" | node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(0, "utf8")), null, 2) + "\n")' > "examples/answers/$(basename "$r")"; done
 ```
+
+`npm run docs` runs the commands on this page as written, the loop into a temporary folder,
+and fails if an answer differs from its recorded one. CI runs it on every push.

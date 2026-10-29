@@ -10,6 +10,7 @@
     "conformance": "node conformance/security-reviewer-check.mjs --cmd \"node --permission --allow-fs-read='*' agents/security-reviewer/scripts/review.mjs\"",
     "removal": "node tools/removal-check.mjs",
     "readme": "node tools/readme-check.mjs",
-    "verify": "npm test && npm run conformance && npm run removal && npm run readme"
+    "docs": "node tools/docs-check.mjs",
+    "verify": "npm test && npm run conformance && npm run removal && npm run readme && npm run docs"
   }
 }
