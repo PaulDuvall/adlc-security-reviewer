@@ -24,7 +24,7 @@ tests the suite lacks, and some URL forms the spec does not refuse
 | ✅ | Automated checks on GitHub | Pass on the latest push to `main` |
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
 | ✅ | Tests | 180 of 180 pass. Each one traces to a requirement in [docs/traceability.md](docs/traceability.md) |
-| ✅ | Role checks | 4 of 4 pass: the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/main/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires, run by a check written here |
+| ✅ | Role checks | 4 of 4 pass: the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/058e5bd432f10a0d842da4926fa8fc3f77ea7ec0/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires at v1.4.1, the version the spec pins, run by a check written here |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 36 files, including the spec and the tests. A push that changes any of them turns the checks on GitHub red, unless it also rewrites the checks, which then shows in its diff |
 | ✅ | Planted-bug check | The tests catch 91.8% of 3,557 small bugs planted in copies of the code, against the usual target of 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Last measured on round 13's code, with tools kept outside this repository |
