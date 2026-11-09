@@ -14,9 +14,13 @@ and its stage is at [agenticdevelopment.ai](https://agenticdevelopment.ai/stages
 
 ## Where it stands
 
-Status on 29 October 2026: complete against spec 0.3.0. Its 23 requirements, 180 tests and 4
-role checks all pass, on Node 22 and on Node 26. Open: 29 decisions the spec leaves open, 104
-tests the suite lacks, and some URL forms the spec does not refuse
+Status on 9 November 2026: complete against spec 0.3.0. Its 23 requirements, 180 tests and 4
+role checks all pass, on Node 22 and on Node 26. The role itself has moved on since the version
+the spec pins. Against Agent Roles v1.9, the published role check would pass 9 of its 12 checks
+with packages handed as folders, and 4 of 12 with archives, its default. Those figures are
+derived from its grading code, not from a run
+([the proposal](docs/rounds.md#for-the-spec-owner-agent-roles-v16-to-v19)). Also open: 29 decisions
+the spec leaves open, 104 tests the suite lacks, and some URL forms the spec does not refuse
 ([What is still open](#what-is-still-open)).
 
 | | Check | Result |
@@ -25,6 +29,7 @@ tests the suite lacks, and some URL forms the spec does not refuse
 | ✅ | Spec | Version 0.3.0, with 23 numbered requirements |
 | ✅ | Tests | 180 of 180 pass. Each one traces to a requirement in [docs/traceability.md](docs/traceability.md) |
 | ✅ | Role checks | 4 of 4 pass: the four scenarios [ROLES.md §34.4](https://github.com/CommonAgent/common-agent-standards/blob/058e5bd432f10a0d842da4926fa8fc3f77ea7ec0/roles/ROLES.md#344-conformance-testing-the-security-reviewer) requires at v1.4.1, the version the spec pins, run by a check written here |
+| 🟡 | The current role | Not met. [Agent Roles](https://agentroles.ai/security-reviewer.html) v1.6 to v1.9 add a fifth case: a program that calls a declared model at an address it carries must pass, with a warning that names the file and the address. This reviewer refuses it, and reads no package archives. The [published check](https://agentroles.ai/checks/security-reviewer/README.md) would pass 9 of 12 with folders and 4 of 12 with archives, derived, not run. [Proposal for the spec owner](docs/rounds.md#for-the-spec-owner-agent-roles-v16-to-v19) |
 | ✅ | The tests catch broken code | With the 6 programs emptied, 0 of 180 tests pass. Deleting any one program makes 122 to 157 of the 180 tests fail |
 | ✅ | The AI that wrote the code cannot change the tests unseen | A fingerprint covers 36 files, including the spec and the tests. A push that changes any of them turns the checks on GitHub red, unless it also rewrites the checks, which then shows in its diff |
 | ✅ | Planted-bug check | The tests catch 91.8% of 3,557 small bugs planted in copies of the code, against the usual target of 80% ([Stryker's default](https://stryker-mutator.io/docs/stryker-js/configuration/#thresholds-object)). Last measured on round 13's code, with tools kept outside this repository |
@@ -280,7 +285,7 @@ flowchart LR
   des["<b>Design</b> ✅<br/>each requirement traced<br/>to its tests and its program"]
   tst["<b>Test</b> ✅<br/>180 tests, 4 role checks<br/>36 files locked"]
   cod["<b>Code</b> ✅<br/>6 programs, 3,310 lines<br/>Node built-ins only<br/>25 rounds"]
-  nxt["<b>Next</b><br/>104 missing tests added<br/>29 open decisions settled"]
+  nxt["<b>Next</b><br/>Agent Roles v1.9 adopted<br/>104 missing tests added<br/>29 open decisions settled"]
   req --> des --> tst --> cod -.-> nxt
   classDef done stroke:#1a7f37,stroke-width:2px
   classDef next stroke:#9a6700,stroke-width:2px,stroke-dasharray:4
@@ -325,10 +330,11 @@ to turn the ruleset off, move the tag, and turn it back on.
 
 | Item | Owner | Where |
 |---|---|---|
+| Adopt Agent Roles v1.6 to v1.9 and its published role check: a warning, not a refusal, for a declared model at a written address; the model system's four settings; package archives and their digests; and the check's request and answer files. 7 decisions, each with a recommendation | Spec owner, at the next reopen, then Code round 26 | [docs/rounds.md](docs/rounds.md#for-the-spec-owner-agent-roles-v16-to-v19) |
 | 104 tests the suite lacks: 70 gaps, and 34 cases from bugs already fixed | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#test-ideas-from-round-17) |
 | The protections on GitHub. `main` cannot be deleted or force-pushed, and the `handoff` tag cannot be moved or deleted, by anyone, while their rulesets are on. No ruleset asks for a review or a green check before a push to `main`; the spec owner is the only person with write access | Spec owner: add the review ruleset in `tools/handoff.sh` if anyone else gets write access | `tools/handoff.sh` |
 | 10 small changes to locked files: a second way to report a vulnerability, the CI step that decides which stage a commit is in, version and runtime fields, credit notices in the spec, and others. Also, from rounds 24 and 25: a package size limit, tests for the fixes of rounds 17 to 25, Node 26 in CI, and a stricter third conformance case | Spec owner, at the next reopen | [docs/rounds.md](docs/rounds.md#for-the-spec-owner-from-round-23), rounds 24 and 25 |
-| 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. Need input from AgentMesh: 4 | [docs/spec.md](docs/spec.md#open-questions) |
+| 11 questions the spec leaves open, such as other ways code can load code, what an agent's tool servers run, and old npm lockfiles | Spec owner: 7. AgentMesh answered the other 4 on 30 October 2026; the spec owner adopts the answers at the reopen | [docs/spec.md](docs/spec.md#open-questions), [the answers](docs/rounds.md#agentmeshs-answers-to-the-open-questions) |
 | 18 points where the spec is still silent and the code made its own choice | Spec owner may settle any | [docs/rounds.md](docs/rounds.md#points-the-statement-does-not-settle) |
 | URL forms that pass, though Node's URL parser sends them to a host: some because SR-08 reads them so, such as `https:// x@evil.example/`, and some by the code's own rule that a host it finds past a bracket or quotation mark holds a letter or a digit, such as `` https://«`.evil.example/ `` | Spec owner | [docs/rounds.md](docs/rounds.md#rounds), rounds 19 and 20 |
 | On a developer's own machine, the lock check skips files that local git settings hide: `.git/info/exclude`, global excludes or an untracked `.gitignore`. The checks on GitHub are unaffected | Spec owner; accepted as a known limit | [docs/rounds.md](docs/rounds.md), round 10 |

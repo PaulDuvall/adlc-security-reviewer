@@ -37,6 +37,10 @@ unresolved, for the spec owner.
 None. Every test passes with the statement read as written. Round 19 found URL forms the statement
 leaves unrefused though Node reaches their host; its notes list them for the spec owner.
 
+The role contract has since moved past the version the statement pins. That is not a conflict,
+since the pin still holds, but the reviewer no longer conforms to the current role. See
+[For the spec owner: Agent Roles v1.6 to v1.9](#for-the-spec-owner-agent-roles-v16-to-v19).
+
 ## For the spec owner, from round 23
 
 Changes to locked files that round 23 found worth making. None blocks a test; the programs pass
@@ -60,6 +64,176 @@ without them. A reopen applies them, re-locks and moves the `handoff` tag.
 Settings on GitHub, for the owner: drop "Reference implementation" from the repository's
 description; once the repository is public, turn on private vulnerability reporting and push
 protection, and ask approval before any outside contributor's workflow runs.
+
+## For the spec owner: Agent Roles v1.6 to v1.9
+
+Written 9 November 2026. No program and no locked file changed, so this is not a round. The
+statement pins ROLES.md at `058e5bd`, Agent Roles v1.4.1 of 25 October 2026. The role has
+moved since, and the reviewer does not conform to it. A reopen adopts the change, then a Code
+round makes it pass. Below: what changed, what the reviewer answers today on the published
+fixtures, the gaps, and the decisions the reopen must make.
+
+Sources read: CommonAgent/common-agent-standards at `05396e0` (8 November 2026): ROLES.md
+v1.9 and its changelog, the Common Agent Specification 0.41.0 and its changelog, and the harness
+in `roles/conformance/security-reviewer/`. CommonAgent/adlc at `f0d16f0` (9 November 2026), for
+its reference security reviewer. And an email from AgentMesh to the owner, 30 October 2026.
+
+### What changed upstream
+
+| Source | Change | Effect here |
+|---|---|---|
+| Agent Roles v1.5, 29 October | §34.2 item 3: a program that carries its own address for a declared system is refused | Replaced the same day by v1.6 |
+| Agent Roles v1.6, 29 October | §34.2 item 3: such a program gets a **warning** that names the file and the address and is listed in the statement. A reason in the statement does not remove it, and the package is not refused for it alone. A program that reaches an undeclared system is still refused. §34.4 adds a case for it, five in all | SR-08 refuses the package |
+| Agent Roles v1.7 to v1.9, 30 October to 8 November | New roles (§21.5, §39, §40). Nothing in §34 | None |
+| Common Agent 0.39.0, 29 October | §12.4.1: a system of `kind: "model"` with `protocols`, reached through four settings whose names are fixed: `MODEL_NAME`, `MODEL_ENDPOINT`, `MODEL_KEY` and `MODEL_PROTOCOL`. Its entry names no credential and no variable | SR-09 refuses `MODEL_KEY` as a credential nothing binds |
+| Common Agent 0.40.0, 29 October | §12.10: a depot reports every address literal in a script as a warning, naming the file, the line and the literal, and does not refuse the package for it | The shape a warning takes |
+| Common Agent 0.40.1, 30 October | §12.4.1: an optional fifth setting, `MODEL_MAX_OUTPUT_TOKENS` | One more name to bind |
+| Common Agent 0.41.0, 7 November | §12.4.1: the former names `TEXT_MODEL` and `TEXT_API_KEY` are no longer accepted | Neither is bound |
+| Common Agent §12.6 rule 3 | The runtime requirements carry no address of any kind | No system can declare a host |
+| Common Agent §12.6 rule 5 | A security review is handed an archive packed deterministically, and names the SHA-256 of that archive as the package's digest | The reviewer reads folders only; its digest is over the folder's files |
+| Harness 1.1.0, published with Agent Roles v1.5.1 and changed in v1.6 | `run.mjs`, published at agentroles.ai/checks/security-reviewer/: 5 cases, 12 checks, and four fixture packages, each as a folder and as an archive | `conformance/` here runs v1.4.1's four cases |
+
+### What the reviewer answers today
+
+Each fixture of harness 1.1.0, handed to `review.mjs` in a `security-review-request-v1` request
+with a limit of 3,000,000 micro-USD per day (the harness's 3 USD per day), run under
+`node --permission --allow-fs-read=*`. The fixture archives' digests match the harness's
+`SHA256SUMS`.
+
+| Fixture | Harness case | Handed as a folder | Handed as an archive |
+|---|---|---|---|
+| `base` | 1. declared | Passed: `forecast-service` at `read`, its reason and the limit | Refused, `unreadable` |
+| `undeclared` | 2. undeclared | Refused, `undeclared-reach`, `ledger.agentroles.ai` | Refused, `unreadable` |
+| `model` | None. The model package with no address | Refused, `undeclared-reach`, `MODEL_KEY` | Not run |
+| `model-address` | 3. model-address | Refused, `undeclared-reach`: `MODEL_KEY` at line 14, and `api.anthropic.com` at line 20 of `skills/write-the-forecast/scripts/write-forecast.mjs` | Refused, `unreadable` |
+| `base`, no limit | 4. no-limit | Refused, `spend-limit` | Not run |
+| `base`, asked to bind | 5. bind | Declined | Declined |
+
+The `model` package is refused though it reaches its model the declared way. That gap is separate
+from the warning: fixing only SR-08 would still refuse case 3, for `MODEL_KEY`.
+
+### What the harness would score, derived
+
+`run.mjs` was not run: this session may not execute downloaded code. The scores below come from
+applying its grading functions, read in full at `05396e0`, to the answers above. They assume an
+adapter that changes only the form of each answer, which the harness's README allows (D6).
+
+| Case | Checks | Folder (`--hand folder`) | Archive (the default) |
+|---|---|---|---|
+| 1. declared | 5 | 5 | 1. Refused, so only "it passes no access without a reason" holds |
+| 2. undeclared | 2 | 2 | 1. It refuses, but names no `ledger.agentroles.ai` |
+| 3. model-address | 3 | 0 | 0 |
+| 4. no-limit | 1 | 1 | 1 |
+| 5. bind | 1 | 1 | 1 |
+| **Total** | **12** | **9 of 12** | **4 of 12** |
+
+The email from AgentMesh says the same of case 3: a reviewer that refuses there fails its three
+checks. It says AgentMesh's own reviewer passes all twelve.
+
+### The gaps
+
+| # | The current contract asks | The reviewer does | Requirements touched |
+|---|---|---|---|
+| G1 | Pass a program that carries an address for a declared system, with a warning in the statement that names the file and the address | Refuses it with rule `undeclared-reach` | SR-08, SR-16, the statement's format, a new requirement for warnings |
+| G2 | Treat the four settings of a `kind: "model"` system as that system's own | `MODEL_KEY` is credential-like and no `env` binds it, so SR-09 refuses it. Each of the other three would add an `accepted_knowingly` entry under SR-17 | Terms (Bound name), SR-09, SR-17 |
+| G3 | Read the package as a `.tar.gz` archive, and name the archive's SHA-256 as its digest | An archive is refused `unreadable` | SR-02, SR-05, SR-19, Terms (Shipped file, Package digest) |
+| G4 | Take a request file named as the last argument; write the answer to the file the request names, as Markdown with YAML front matter; read the limit as `amount`, `currency` and `per` (`day`, `month` or `job`), or `null` | Reads JSON on standard input and writes JSON on standard output. The limit is `most_micro`, with `per` of `task` or `day`. SR-21 forbids writing a file | SR-01, SR-10, SR-21, the interface |
+| G5 | The five cases of v1.6 | `conformance/security-reviewer-check.mjs` runs v1.4.1's four, and CI runs it | `conformance/`, `.github/workflows/verify.yml` |
+
+### Decisions for the reopen
+
+**D1. How a written address is tied to a declared system.** Descriptors name systems, not
+hosts, and §12.6 rule 3 forbids an address in the runtime requirements. So a package cannot
+declare which host belongs to which system, and the reviewer needs a rule of its own.
+
+| Option | Rule | Case 3 | Cost |
+|---|---|---|---|
+| A, recommended | A closed table by protocol. Where the package declares a `kind: "model"` system whose `protocols` holds `anthropic-messages`, a URL whose host is `api.anthropic.com` reaches that system. Likewise `openai-chat` with `api.openai.com`, and `gemini` with `generativelanguage.googleapis.com`. Every other host is refused as today | Passes | A model reached at a written address through any other gateway is refused, where v1.6 asks for a warning. The table changes only with a new statement version |
+| B | A URL whose path ends with the path the declared protocol adds (`/v1/messages`, `/chat/completions`, or `/models/` then `:generateContent`) reaches the model system, whatever its host | Passes | Any host passes with only a warning if the request looks like a model call: `https://evil.example/v1/messages` |
+| C | A and B together | Passes | The strictest. A publisher's address with another path is refused |
+
+The reference reviewer in CommonAgent/adlc (`agents/security-reviewer/scripts/trace-programs.mjs`,
+`PLATFORM_HOSTS`) uses a table like A, keyed by the system's name (`text-reasoning`) and holding
+Google's hosts and `api.anthropic.com`. §12.4.1 says a checker finds the model system by its kind,
+never by its name, so A keys on the kind and the declared protocols.
+
+A declared `service` has no host anywhere in its package: its address is a setting bound at
+install. No rule can tie a written address to it without judgment. Recommended: keep refusing
+those, as the reference reviewer also does, and name this departure from §34.2 item 3 in the
+statement.
+
+**D2. What `warnings` lists.**
+
+| Option | Lists | Cost |
+|---|---|---|
+| a | Only the addresses D1 ties to a declared system | The least §34.4 grades |
+| b, recommended | Every address literal §12.10's address check finds in a program: `http`, `https`, `ws` or `wss` then `://` and a letter, a digit or `[`, and any IPv4 address in 169.254.0.0/16, in code or comments, less §12.10's seven identifier prefixes. Listed whatever the verdict | The statement shows what a depot shows for the same package. The reviewer's own review gains warnings for the two literals in the comments of `reach.mjs`; SR-21 still passes |
+
+Either way: each warning carries `file`, `line`, the address and a `why`, and `system` where D1
+ties one; warnings are sorted by file in byte order, then line (SR-20); and SR-13's withholding
+applies to them.
+
+**D3. The model system's settings.** Add to Terms (Bound name): for a system of
+`kind: "model"`, `MODEL_NAME`, `MODEL_ENDPOINT`, `MODEL_KEY`, `MODEL_PROTOCOL` and
+`MODEL_MAX_OUTPUT_TOKENS`. Not `TEXT_MODEL` or `TEXT_API_KEY`, which 0.41.0 no longer accepts.
+Open: whether a package that declares two systems of `kind: "model"`, which §12.4.1 forbids, is
+refused, and under which rule.
+
+**D4. Archives.** Recommended: `read-package.mjs` reads a `.tar.gz` with `node:zlib` and a ustar
+reader, adds no dependency and writes nothing (SR-04, SR-21). For an archive, the package digest
+is the archive's SHA-256, which settles open question 7. Where the request carries
+`package_digest`, a different digest refuses the request. To decide: under which rule; what an
+entry outside the one top folder, a link, a duplicate path or another entry type does, with
+`unreadable` the obvious answer; and a limit on the unpacked size, which rounds 24 and 25 already
+asked for packages in general.
+
+**D5. Files under `test/` in an archive.** AgentMesh's advice, in the email: read whatever the
+archive carries rather than skip `test/`, since the specification does not promise that every
+package maker leaves tests out. Recommended: in an archive every entry ships; in a folder,
+today's exclusion and its `not_checked` line stay. SR-19's rule that a change under `test/`
+leaves the digest unchanged then holds for folders only. This settles open question 2 for
+archives.
+
+**D6. The interface.** Recommended: keep `security-review-request-v1` on standard input and the
+JSON answer on standard output, and add an adapter under `conformance/` that maps the harness's
+request file and answer file to them. The harness's README allows an adapter that "changes the
+form of what is said and never what is said". Writing the answer file from `review.mjs` would
+break SR-21, whose read-only file access the suite enforces. The adapter maps `amount` times
+1,000,000 to `most_micro`, and `per` of `job` to `task`. The harness uses `day` only, so whether
+SR-10 accepts `month` can wait.
+
+**D7. Conformance here.** Recommended: replace the local four-case check with harness 1.1.0,
+pinned at `05396e0` and run through D6's adapter, in both hand modes, and make CI require
+"Conforms: all 12 checks pass." Its fixtures are Apache-2.0 and small; the tests can copy them,
+with credit in NOTICE. Move the statement's Sources pins to `05396e0`.
+
+### AgentMesh's answers to the open questions
+
+The email of 30 October 2026 answers the four open questions marked as needing the AgentMesh
+team. Each answer was checked against the published text, except where the table says not.
+
+| Question | Answer | Checked against |
+|---|---|---|
+| 2. `test/` left out of shipped files | Their package maker leaves tests out of the archive, but the specification does not promise it of every package maker. Read whatever the archive carries | Not checked: advice in the email only. D5 |
+| 4. A published check for §34.4 | Published, version 1.1.0 | `roles/conformance/security-reviewer/` at `05396e0` |
+| 6. The model's address as a literal | Common Agent 0.39.0 adds the model system; from 0.40.0 a written address is a warning | §12.4.1, §12.10 and the changelog at `05396e0`. D1 to D3 |
+| 7. The archive's digest | The review is made on the archive and names its digest; packing is deterministic | §12.6 rule 5 at `05396e0`. D4 |
+
+Open question 5, a URL used only as an identifier, has a deterministic answer upstream too:
+§12.10 excepts a closed list of seven prefixes, such as `https://json-schema.org/` and
+`http://www.w3.org/`. The reopen may adopt the same list for SR-08.
+
+### Order of work
+
+1. The spec owner decides D1 to D7, writes them into `docs/spec.md` as version 0.4.0, and updates
+   `docs/traceability.md`.
+2. The tests: the four fixtures, as folders and as archives, and a case for each decision.
+3. `conformance/`: the adapter and harness 1.1.0. CI runs both hand modes.
+4. Re-lock, and move the `handoff` tag.
+5. Code round 26: `reach.mjs` and `rules.mjs` for D1 and D2, `rules.mjs` for D3,
+   `read-package.mjs` for D4 and D5, `statement.mjs` for the warnings, and `review.mjs` for the
+   request's new members. Done when `npm run verify` passes and the harness prints "Conforms: all
+   12 checks pass." in both hand modes.
 
 ## Points the statement does not settle
 
