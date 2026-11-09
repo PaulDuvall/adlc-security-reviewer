@@ -71,7 +71,8 @@ Written 9 November 2026. No program and no locked file changed, so this is not a
 statement pins ROLES.md at `058e5bd`, Agent Roles v1.4.1 of 25 October 2026. The role has
 moved since, and the reviewer does not conform to it. A reopen adopts the change, then a Code
 round makes it pass. Below: what changed, what the reviewer answers today on the published
-fixtures, the gaps, and the decisions the reopen must make.
+fixtures, the gaps, the decisions with their options, and what the spec owner decided on 9
+November 2026.
 
 Sources read: CommonAgent/common-agent-standards at `05396e0` (8 November 2026): ROLES.md
 v1.9 and its changelog, the Common Agent Specification 0.41.0 and its changelog, and the harness
@@ -207,6 +208,36 @@ pinned at `05396e0` and run through D6's adapter, in both hand modes, and make C
 "Conforms: all 12 checks pass." Its fixtures are Apache-2.0 and small; the tests can copy them,
 with credit in NOTICE. Move the statement's Sources pins to `05396e0`.
 
+### Decided, 9 November 2026
+
+The spec owner adopted the recommended option of each decision: D1 option A, D2 option b, and
+D3 to D7 as recommended. Where a recommendation left a detail loose, the table says what was
+settled with it, marked "settled here", and the list below it says what is still open. The Code
+stage writes none of this. The statement, the tests, `conformance/` and CI are locked, and the
+hook refuses this stage's edits to them. No program changes before the reopen either: each
+decision departs from the locked statement, as D1 does from SR-08's "shall refuse".
+
+| # | Decided | What spec 0.4.0 changes | What the tests check |
+|---|---|---|---|
+| D1 | Option A. A URL whose host, as the WHATWG parser gives it, is `api.anthropic.com`, `api.openai.com` or `generativelanguage.googleapis.com` reaches the package's model system, where it declares one and its `protocols` holds `anthropic-messages`, `openai-chat` or `gemini` respectively. The URL is not refused, and SR-24 lists it. Any other host is refused as today. A written address for a declared `service` is still refused, and the statement names that departure from §34.2 item 3 | SR-08; a new Term, Model system: a runtime requirements system whose `kind` is `model` | Harness case 3. Each protocol with its host: passed, one warning naming the system. The same host with no model system, or with one that declares another protocol: refused. `api.anthropic.com.evil.example`, and `evil.example/v1/messages` with a model declared: refused |
+| D2 | Option b. A new SR-24: the answer's `warnings` lists every address literal in a program, as §12.10's address check defines one, in code or in comments: `http`, `https`, `ws` or `wss` in any letter case, then `://`, then a letter, a digit or `[`; or an IPv4 address in 169.254.0.0/16, with or without a scheme. Less a literal that begins with one of §12.10's seven prefixes. Each warning carries `file`, `line`, `address` and `why`, and `system` where D1 ties one. Settled here: `address` is the scheme and the host as SR-08 reads them, or the IPv4 address, so it never repeats a path, a query or a userinfo. Sorted by file in byte order, then line. In a passed statement, and in a refused answer whenever the package was read | The interface's two answers; SR-24; SR-13 and SR-20 name warnings | A literal in a comment: one warning, no refusal. One under `http://www.w3.org/`: no warning. A bare 169.254 address: one warning. A refused package that carries a literal: the refusal and the warning. The reviewer's own review: passed, with the two warnings for the comments of `reach.mjs` |
+| D3 | Bound names include the five settings of a model system: `MODEL_NAME`, `MODEL_ENDPOINT`, `MODEL_KEY`, `MODEL_PROTOCOL` and `MODEL_MAX_OUTPUT_TOKENS`. `TEXT_MODEL` and `TEXT_API_KEY` are not | Terms (Bound name) | The `model` fixture: passed, with no `accepted_knowingly` entry for its four reads. `TEXT_API_KEY` read in a model package: refused |
+| D4 | Settled here: a `package` that names a file, not a folder, is read as a gzip stream holding a ustar archive, with the package under one top folder. Its digest is the SHA-256 of the archive's bytes. A request may carry `package_digest`; settled here: a digest that differs is refused with rule `bad-request`. Refused `unreadable`: a file that is not a gzipped ustar archive, an entry outside the one top folder, a link, a duplicate path, and any entry other than a file or a folder | The request's members; Terms (Package, Shipped file, Package digest); SR-02, SR-05, SR-19 | Each fixture as an archive: the answer it gets as a folder, with the archive's digest, equal to `SHA256SUMS`. A wrong `package_digest`: `bad-request`. Each malformed archive: `unreadable` |
+| D5 | In an archive every file entry ships, `test/` included. In a folder, today's exclusion and its `not_checked` line stay | Terms (Shipped file); SR-18 and SR-19 say "in a folder" | An archive with a URL in `test/x.mjs`: refused. The same package as a folder: passed, with the `not_checked` line |
+| D6 | The interface stays: one request on standard input, one JSON answer on standard output, no file written. An adapter under `conformance/` maps the harness's request file to `security-review-request-v1`, and the JSON answer to the harness's front matter, changing form only: `amount` times 1,000,000 to `most_micro`; `per` of `job` to `task`; each refusal to a `refused_for` string with its rule, system, file and line; each warning to a `warnings` string with its file, line and address; a declined answer's `why` to `declined` | The interface: a line saying the harness runs through the adapter | The adapter's own tests: each mapping, and that its output names no system or address the answer does not |
+| D7 | `conformance/` runs harness 1.1.0, copied from `05396e0`, through D6's adapter, with `--hand folder` and `--hand archive`. CI requires "Conforms: all 12 checks pass." from both. The local four-case check is retired. The tests copy the four fixtures; NOTICE credits them (Apache-2.0). The statement's Sources pin `05396e0` | Sources; `npm run conformance`; `.github/workflows/verify.yml`; NOTICE; LOCK.json | `npm run conformance` passes in both modes |
+
+Still open after these decisions, for the spec owner:
+
+1. The most an archive may unpack to. D4 needs a number; rounds 24 and 25 found five sparse
+   400 MB files took 2.8 GB to review, and no round proposed a limit.
+2. A package that declares two systems of `kind: "model"`, which §12.4.1 forbids: refused or not,
+   and under which rule.
+3. Whether SR-10 accepts a limit `per` `month`. The harness uses `day` only.
+
+What they settle: open questions 4 and 6, and 2 and 7 for packages handed as archives. Open
+question 5 stays open; §12.10's prefix list now applies to warnings only.
+
 ### AgentMesh's answers to the open questions
 
 The email of 30 October 2026 answers the four open questions marked as needing the AgentMesh
@@ -225,15 +256,17 @@ Open question 5, a URL used only as an identifier, has a deterministic answer up
 
 ### Order of work
 
-1. The spec owner decides D1 to D7, writes them into `docs/spec.md` as version 0.4.0, and updates
-   `docs/traceability.md`.
-2. The tests: the four fixtures, as folders and as archives, and a case for each decision.
-3. `conformance/`: the adapter and harness 1.1.0. CI runs both hand modes.
-4. Re-lock, and move the `handoff` tag.
-5. Code round 26: `reach.mjs` and `rules.mjs` for D1 and D2, `rules.mjs` for D3,
+1. Done 9 November 2026: the spec owner decided D1 to D7 (above).
+2. The spec owner settles the three points still open, writes the decisions into `docs/spec.md`
+   as version 0.4.0, and updates `docs/traceability.md`.
+3. The tests: the four fixtures, as folders and as archives, and the cases the table above names.
+4. `conformance/`: the adapter and harness 1.1.0. CI runs both hand modes.
+5. Re-lock, and move the `handoff` tag.
+6. Code round 26: `reach.mjs` and `rules.mjs` for D1 and D2, `rules.mjs` for D3,
    `read-package.mjs` for D4 and D5, `statement.mjs` for the warnings, and `review.mjs` for the
-   request's new members. Done when `npm run verify` passes and the harness prints "Conforms: all
-   12 checks pass." in both hand modes.
+   request's new members. Then `examples/answers/` and the answer `README.md` shows gain
+   `warnings`. Done when `npm run verify` passes and the harness prints "Conforms: all 12 checks
+   pass." in both hand modes.
 
 ## Points the statement does not settle
 
