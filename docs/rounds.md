@@ -212,7 +212,8 @@ with credit in NOTICE. Move the statement's Sources pins to `05396e0`.
 
 The spec owner adopted the recommended option of each decision: D1 option A, D2 option b, and
 D3 to D7 as recommended. Where a recommendation left a detail loose, the table says what was
-settled with it, marked "settled here", and the list below it says what is still open. The Code
+settled with it, marked "settled here". D8 to D10, below it, settle the three points D1 to D7
+left open. The Code
 stage writes none of this. The statement, the tests, `conformance/` and CI are locked, and the
 hook refuses this stage's edits to them. No program changes before the reopen either: each
 decision departs from the locked statement, as D1 does from SR-08's "shall refuse".
@@ -227,15 +228,27 @@ decision departs from the locked statement, as D1 does from SR-08's "shall refus
 | D6 | The interface stays: one request on standard input, one JSON answer on standard output, no file written. An adapter under `conformance/` maps the harness's request file to `security-review-request-v1`, and the JSON answer to the harness's front matter, changing form only: `amount` times 1,000,000 to `most_micro`; `per` of `job` to `task`; each refusal to a `refused_for` string with its rule, system, file and line; each warning to a `warnings` string with its file, line and address; a declined answer's `why` to `declined` | The interface: a line saying the harness runs through the adapter | The adapter's own tests: each mapping, and that its output names no system or address the answer does not |
 | D7 | `conformance/` runs harness 1.1.0, copied from `05396e0`, through D6's adapter, with `--hand folder` and `--hand archive`. CI requires "Conforms: all 12 checks pass." from both. The local four-case check is retired. The tests copy the four fixtures; NOTICE credits them (Apache-2.0). The statement's Sources pin `05396e0` | Sources; `npm run conformance`; `.github/workflows/verify.yml`; NOTICE; LOCK.json | `npm run conformance` passes in both modes |
 
-Still open after these decisions, for the spec owner:
+The three points those decisions left open were decided the same day:
 
-1. The most an archive may unpack to. D4 needs a number; rounds 24 and 25 found five sparse
-   400 MB files took 2.8 GB to review, and no round proposed a limit.
-2. A package that declares two systems of `kind: "model"`, which §12.4.1 forbids: refused or not,
-   and under which rule.
-3. Whether SR-10 accepts a limit `per` `month`. The harness uses `day` only.
+| # | Decided | What spec 0.4.0 changes | What the tests check |
+|---|---|---|---|
+| D8 | A package's shipped files may total at most 256 MiB (268,435,456 bytes), handed as a folder or as an archive. Over it, the package is refused `unreadable`, with a reason that names the limit. In a folder, sizes are summed before any file is read, and files the Terms exclude do not count. In an archive, sizes are summed as entries are unpacked, and unpacking stops at the limit, so a compression bomb never expands in memory | Terms (a new term, Package size); SR-05 | Shipped files of exactly 256 MiB: reviewed. One byte more: refused `unreadable`, as a folder and as an archive. A small gzip archive that would unpack past the limit: refused `unreadable` |
+| D9 | A package whose runtime requirements declare more than one system of `kind: "model"`, which §12.4.1 forbids, is refused, naming each. Settled here: a new rule, `model-systems`; the spec owner may rename it | A new SR-25 | Two model systems: refused `model-systems`, naming both. One: no such refusal |
+| D10 | SR-10 keeps `per` of `task` or `day`. A limit `per` `month` is malformed and refused `spend-limit`, as today. The adapter passes `month` through unchanged | None | Covered by today's SR-10 tests |
 
-What they settle: open questions 4 and 6, and 2 and 7 for packages handed as archives. Open
+Why 256 MiB: measured on 9 November 2026, Node 22.23, a 16 GB machine. Peak memory was about
+the shipped files' total, plus the largest file, plus 0.05 GiB: 0.83 GiB and 3.8 s for one
+400 MB file, 2.40 GiB and 19.5 s for 2 GB, 4.35 GiB and 45.4 s for 4 GB. Any one file over Node's
+string limit, 536,870,888 characters, is refused today as the reviewer's own failure
+(`secrets.mjs` line 20), not the package's. At 256 MiB a review should peak near 0.55 GiB, which
+is estimated, not measured, and no file can reach the string limit. Real packages are far
+smaller: the four harness fixtures are 13 KB each as archives, this reviewer's package is 176 KB
+without its tests, and the 21 agents in CommonAgent/adlc at `f0d16f0` range from 20 KB to 1.3 MB,
+216 KB at the median, tests excluded. A limit of 10 GB was considered: it would need about 11 GiB
+of memory and about 110 s per review, by the same measurements, against the harness's default
+of 120 s per case.
+
+What D1 to D10 settle: open questions 4 and 6, and 2 and 7 for packages handed as archives. Open
 question 5 stays open; §12.10's prefix list now applies to warnings only.
 
 ### AgentMesh's answers to the open questions
@@ -256,14 +269,15 @@ Open question 5, a URL used only as an identifier, has a deterministic answer up
 
 ### Order of work
 
-1. Done 9 November 2026: the spec owner decided D1 to D7 (above).
-2. The spec owner settles the three points still open, writes the decisions into `docs/spec.md`
-   as version 0.4.0, and updates `docs/traceability.md`.
+1. Done 9 November 2026: the spec owner decided D1 to D10 (above).
+2. The spec owner writes the decisions into `docs/spec.md` as version 0.4.0, and updates
+   `docs/traceability.md`.
 3. The tests: the four fixtures, as folders and as archives, and the cases the table above names.
 4. `conformance/`: the adapter and harness 1.1.0. CI runs both hand modes.
 5. Re-lock, and move the `handoff` tag.
 6. Code round 26: `reach.mjs` and `rules.mjs` for D1 and D2, `rules.mjs` for D3,
-   `read-package.mjs` for D4 and D5, `statement.mjs` for the warnings, and `review.mjs` for the
+   `read-package.mjs` for D4, D5 and D8, `rules.mjs` for D9, `statement.mjs` for the warnings,
+   and `review.mjs` for the
    request's new members. Then `examples/answers/` and the answer `README.md` shows gain
    `warnings`. Done when `npm run verify` passes and the harness prints "Conforms: all 12 checks
    pass." in both hand modes.
